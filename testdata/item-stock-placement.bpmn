@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_ItemStockPlacement" name="Item Stock Placement (per-item)" isExecutable="true">
+    <bpmn:documentation>
+      Workflow 050: Item Stock Convergence — One Workflow Per Item.
+
+      Triggered by either of two signals from pyck inventory service:
+
+        inventory.item.create   - item just landed (first-time seed)
+        inventory.item.update   - any item mutation (master-data sync
+                                  from upstream WMS, or operator edit)
+
+      The pyck signal router extracts the entity ID from the event
+      payload and sets it as the workflow ID suffix (pyck_data_id).
+      Workflow ID is therefore deterministic per item:
+
+        ACME_Stock_ItemStockPlacement_&lt;item-uuid&gt;
+
+      Re-signalling the same item terminates any in-flight execution
+      and starts a new one (WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING).
+      This is safe because PlaceItemStock is a delta converger that
+      reads canonical pyck state on every call and recomputes from
+      scratch — partial work left by a terminated run is detected and
+      either re-used (orphan with matching qty) or cleanly replaced
+      (orphan with stale qty: delete + recreate).
+
+      Invariant:
+
+        After a successful run, the picking slot's ownQuantity equals
+        targetStock (the WMS-supplied target). Total physical stock
+        per item never exceeds what the upstream WMS sent. Mid-pick
+        drift (executed reservations) takes ownQty BELOW target; the
+        next WMS update re-converges.
+
+      Flow:
+
+        Start -&gt; Place Item Stock -&gt; End
+
+      The single service task is a delta converger. It reads the
+      target (item.data.targetStock), the current physical state
+      at the Z2 slot (ownQuantity from pyck's append-only stock
+      table), and the pending picker reservations (executed=false
+      outbound ItemMovements). It computes a signed delta and emits
+      ONE of three outcomes:
+
+        SEED   (delta &gt; 0): VIRTUAL-INBOUND      -&gt; slot
+        DRAIN  (delta &lt; 0): slot                 -&gt; WRITE-OFF-MASTERDATA
+        NOOP   (delta == 0): no movement; only stockPlaced bookkeeping
+
+      DRAIN is the loud direction — it physically removes units the
+      warehouse used to have, in response to the upstream WMS lowering
+      targetStock. If pending picker reservations would be stranded
+      by the drain (target &lt; outgoingStock), the converger proceeds
+      anyway per the operator-decided invariant. WF102's existing
+      shortage logic (write-off + redistribute + partial-pick) handles
+      the picker disruption.
+
+      No user tasks. No gateways. No loops. Skipped outcomes (no
+      targetStock, no Z2 storage slot) complete successfully
+      without converging — they are not errors.
+
+      Race notes (see activity godoc for the full matrix):
+
+      - Reservations landing between the slot-state read and the
+        movement create do not duplicate stock. SEED is safe regardless
+        (inbound does not validate against outgoingStock). DRAIN may
+        be rejected by pyck if a fresh reservation pushes outgoing
+        above the post-drain ownQty; Temporal retries with a fresh,
+        smaller delta.
+      - Worker crashes between executeMovement and markItemPlaced
+        leave stockPlaced stale but ownQty correct. On retry, the
+        delta from ownQty is zero and the converger short-circuits
+        to NOOP — no duplicate movement.
+      - Concurrent triggers for the same item are serialised by
+        TERMINATE_EXISTING. A stale orphan from the killed run is
+        detected (handler + fromID + executed=false query) and
+        either reused (matching qty) or deleted+recreated (mismatch).
+    </bpmn:documentation>
+
+    <bpmn:startEvent id="StartEvent_1" name="Item created or updated&#10;(inventory.item.create OR inventory.item.update)">
+      <bpmn:outgoing>Flow_StartToPlace</bpmn:outgoing>
+      <bpmn:signalEventDefinition id="SignalDef_1" />
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Activity_PlaceItemStock" name="Place Item Stock">
+      <bpmn:documentation>
+        Single atomic activity. Steps internally:
+          1. Fetch item by id, read targetStock (target qty).
+          2. Skip if no targetStock or no Z2 storage slot.
+          3. Resolve three repo IDs: target slot, VIRTUAL-INBOUND,
+             WRITE-OFF-MASTERDATA. (Both source/sink up front so a
+             missing virtual repo is a hard config error caught early.)
+          4. Read current ownQty at slot (latest stock row).
+          5. Read pending outgoing reservations at slot (sum of
+             executed=false outbound ItemMovements).
+          6. delta = targetStock - ownQty.
+             delta &gt; 0  -&gt; SEED  movement  (VIRTUAL-INBOUND      -&gt; slot)
+             delta &lt; 0  -&gt; DRAIN movement  (slot                 -&gt; WRITE-OFF-MASTERDATA)
+             delta == 0 -&gt; NOOP (write stockPlaced bookkeeping only)
+          7. find-or-create the movement, handler-scoped orphan
+             recovery: reuse matching orphan, delete + recreate on
+             qty mismatch, fresh create when no orphan exists.
+          8. Execute movement.
+          9. Update item.data.stockPlaced / stockPlacedAt /
+             stockPlacementRepo to targetStock.
+
+        On DRAIN with stranded reservations (target &lt; outgoingStock),
+        the activity logs a WARN and proceeds anyway. Pickers will
+        hit shortage errors at scan time; WF102 shortage logic copes.
+      </bpmn:documentation>
+      <bpmn:incoming>Flow_StartToPlace</bpmn:incoming>
+      <bpmn:outgoing>Flow_PlaceToEnd</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndEvent_1" name="Done">
+      <bpmn:incoming>Flow_PlaceToEnd</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_StartToPlace" sourceRef="StartEvent_1" targetRef="Activity_PlaceItemStock" />
+    <bpmn:sequenceFlow id="Flow_PlaceToEnd" sourceRef="Activity_PlaceItemStock" targetRef="EndEvent_1" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_ItemStockPlacement">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="180" y="100" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="155" y="143" width="86" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_PlaceItemStock_di" bpmnElement="Activity_PlaceItemStock">
+        <dc:Bounds x="290" y="78" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <dc:Bounds x="482" y="100" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="490" y="143" width="20" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_StartToPlace_di" bpmnElement="Flow_StartToPlace">
+        <di:waypoint x="216" y="118" />
+        <di:waypoint x="290" y="118" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PlaceToEnd_di" bpmnElement="Flow_PlaceToEnd">
+        <di:waypoint x="410" y="118" />
+        <di:waypoint x="482" y="118" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

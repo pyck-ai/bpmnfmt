@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1ksue5u" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.22.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.4.0">
+  <bpmn:process id="Process_TourCreation" name="ACME_Picking_TourCreation" isExecutable="true">
+    <bpmn:documentation>Workflow 101: Batch tour creation for fulfillable picking orders.
+
+Triggered by: Temporal Schedule (every 2h, overlap=SKIP) OR custom event mutation (manual).
+Both use the same workflow code -- no input required.
+
+Flow:
+1. Query ALL picking orders where data.status=="fulfillable"
+2. If 0 → complete immediately
+3. Batch into groups of max 8 (configurable)
+4. LOOP over each batch:
+   a. Create one container repo per order (no parent, floating)
+   b. For each order item: create item movement storage slot → container
+   c. Create a movement collection (MC) with all movements for the batch
+   d. Update each order: data.status="in_tour" (with optimistic check)
+5. Return: list of MC IDs, total orders assigned
+
+CONCURRENCY SAFETY:
+- Temporal Schedule uses ScheduleOverlapPolicy=SKIP (prevents schedule+schedule overlap)
+- Manual triggers can overlap with scheduled runs
+- UpdateOrderStatus uses OPTIMISTIC CONCURRENCY CHECK: before setting "in_tour",
+  verify current status is still "fulfillable". If already "in_tour" (claimed by
+  concurrent run), skip the order silently. This prevents double-assignment.
+
+MOVEMENT STRUCTURE:
+  Each MC = one pick tour (up to 8 orders).
+  MC contains item movements: storage slot → per-order container.
+  Containers created with no parent (floating).
+  In workflow 102: picker scans trolley, scans X containers,
+  background job places containers onto trolley.
+
+PARKED FOR LATER:
+- Sort strategy for pick route optimization
+- Partial fulfillment handling (workflow 102 responsibility)
+- Container-to-outbound movement (workflow 102)</bpmn:documentation>
+    <bpmn:startEvent id="Event_083gpo3" name="Scheduled&#10;(every 2h)">
+      <bpmn:documentation>Temporal Schedule: runs every 2 hours.
+ScheduleOverlapPolicy=SKIP prevents concurrent scheduled runs.
+Does NOT prevent overlap with manual triggers — the optimistic
+status check in UpdateOrderStatus handles that.</bpmn:documentation>
+      <bpmn:outgoing>Flow_0d1dpdy</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_0w9alie" />
+    </bpmn:startEvent>
+    <bpmn:startEvent id="Event_09woa0g" name="Manual Trigger&#10;(custom event)">
+      <bpmn:documentation>Custom event mutation via Pyck API.
+Can overlap with scheduled runs — safe due to optimistic status check.</bpmn:documentation>
+      <bpmn:outgoing>Flow_1o0hl68</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_0d1dpdy" sourceRef="Event_083gpo3" targetRef="Activity_1ojjtgp" />
+    <bpmn:serviceTask id="Activity_1ojjtgp" name="Fetch ALL fulfillable orders">
+      <bpmn:documentation>Activity: FetchFulfillableOrders
+
+Query: ALL pickingOrders where data.status=="fulfillable".
+Uses cursor-based pagination to handle large result sets.
+If 0 orders → workflow completes immediately.
+
+NOTE: Sort strategy parked for later.</bpmn:documentation>
+      <bpmn:incoming>Flow_0d1dpdy</bpmn:incoming>
+      <bpmn:incoming>Flow_1o0hl68</bpmn:incoming>
+      <bpmn:outgoing>Flow_fetch_to_routetable</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_1o0hl68" sourceRef="Event_09woa0g" targetRef="Activity_1ojjtgp" />
+    <bpmn:sequenceFlow id="Flow_fetch_to_routetable" sourceRef="Activity_1ojjtgp" targetRef="Activity_fetch_route_table" />
+    <bpmn:serviceTask id="Activity_fetch_route_table" name="Fetch route table (Z2 walkways, depot, dropoff)">
+      <bpmn:documentation>Activity: FetchRouteTable
+
+Loads the Z2 routing master data: walkway geometry per aisle,
+aisle→walkway mapping, depot + dropoff anchors. Loud failure on
+missing/duplicate routing rows — tours must not be planned on a
+broken route table. (Added to the diagram in the 2026-06-10 sync;
+the route-planning era activities were missing here.)</bpmn:documentation>
+      <bpmn:incoming>Flow_fetch_to_routetable</bpmn:incoming>
+      <bpmn:outgoing>Flow_routetable_to_picklocs</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_routetable_to_picklocs" sourceRef="Activity_fetch_route_table" targetRef="Activity_fetch_pick_locations" />
+    <bpmn:serviceTask id="Activity_fetch_pick_locations" name="Resolve pick locations + skip unfulfillable + sort by centroid">
+      <bpmn:documentation>Activity: FetchPickLocations (+ in-workflow annotate/skip/sort)
+
+Aggregates per-SKU demand ACROSS the fetched orders, resolves one
+slot per SKU from live NET stock (latest stock row; reservations
+excluded; nearest-to-depot tiebreak by name asc).
+
+In-workflow follow-ups (no separate activities):
+- Orders containing any unfulfillable item are SKIPPED — they stay
+  "fulfillable" and the next scheduled run retries them (no
+  escalation step yet).
+- Remaining orders are sorted by pick-centroid (route.SortOrdersByCentroid)
+  before batching, so each tour's picks cluster spatially.</bpmn:documentation>
+      <bpmn:incoming>Flow_routetable_to_picklocs</bpmn:incoming>
+      <bpmn:outgoing>Flow_to_gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_batches" name="Batches&#10;remaining?">
+      <bpmn:incoming>Flow_to_gateway</bpmn:incoming>
+      <bpmn:incoming>Flow_loop_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_yes_batch</bpmn:outgoing>
+      <bpmn:outgoing>Flow_no_batch</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_to_gateway" sourceRef="Activity_fetch_pick_locations" targetRef="Gateway_batches" />
+    <bpmn:serviceTask id="Activity_create_tour" name="Create tour for next batch (max 8 orders)">
+      <bpmn:documentation>Activity: CreateTour (called once per batch)
+
+For each order in the batch:
+1. Create container repo (acme-container, no parent)
+2. For each order item: movement from first Z2 storage slot → container
+3. Create MC (acme-movement-collection) with all movements
+
+MC creation fires inventory.collection-movement.create → triggers wf102.</bpmn:documentation>
+      <bpmn:incoming>Flow_yes_batch</bpmn:incoming>
+      <bpmn:outgoing>Flow_to_update</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_yes_batch" name="Yes" sourceRef="Gateway_batches" targetRef="Activity_create_tour" />
+    <bpmn:serviceTask id="Activity_update_status" name="Update orders → in_tour (optimistic check)">
+      <bpmn:documentation>Activity: UpdateOrderStatus (called once per order in the batch)
+
+OPTIMISTIC CONCURRENCY:
+1. Fetch current order data
+2. Check data.status is still "fulfillable"
+   - If "fulfillable" → set to "in_tour" + statusAt=now
+   - If already "in_tour" or beyond → SKIP (concurrent run claimed it)
+3. Returns {skipped: true/false}
+
+This prevents double-assignment when manual and scheduled runs overlap.</bpmn:documentation>
+      <bpmn:incoming>Flow_to_update</bpmn:incoming>
+      <bpmn:outgoing>Flow_loop_back</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_to_update" sourceRef="Activity_create_tour" targetRef="Activity_update_status" />
+    <bpmn:sequenceFlow id="Flow_loop_back" sourceRef="Activity_update_status" targetRef="Gateway_batches" />
+    <bpmn:endEvent id="Event_0ruyaxs" name="All tours created">
+      <bpmn:incoming>Flow_no_batch</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_no_batch" name="No" sourceRef="Gateway_batches" targetRef="Event_0ruyaxs" />
+    <bpmn:textAnnotation id="TextAnnotation_fetch">
+      <bpmn:text>Fetches ALL fulfillable orders at once.
+50 orders → 7 batches processed in this loop.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_fetch" associationDirection="None" sourceRef="Activity_1ojjtgp" targetRef="TextAnnotation_fetch" />
+    <bpmn:textAnnotation id="TextAnnotation_tour">
+      <bpmn:text>Max 8 orders/MC (configurable).
+Creates: 1 container/order, N movements, 1 MC.
+Containers: no parent (placed on trolley in wf102).</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_tour" associationDirection="None" sourceRef="Activity_create_tour" targetRef="TextAnnotation_tour" />
+    <bpmn:textAnnotation id="TextAnnotation_optimistic">
+      <bpmn:text>OPTIMISTIC CHECK: skip if order already claimed
+by a concurrent run (status != "fulfillable").</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_optimistic" associationDirection="None" sourceRef="Activity_update_status" targetRef="TextAnnotation_optimistic" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_TourCreation">
+      <bpmndi:BPMNShape id="Event_00y441w_di" bpmnElement="Event_083gpo3">
+        <dc:Bounds x="139" y="222" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="125" y="265" width="65" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_09woa0g_di" bpmnElement="Event_09woa0g">
+        <dc:Bounds x="139" y="382" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="119" y="425" width="76" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0giplze_di" bpmnElement="Activity_1ojjtgp" bioc:stroke="#6b3c00" bioc:fill="#ffe0b2" color:background-color="#ffe0b2" color:border-color="#6b3c00">
+        <dc:Bounds x="310" y="280" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_batches_di" bpmnElement="Gateway_batches" isMarkerVisible="true">
+        <dc:Bounds x="495" y="295" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="491" y="352" width="58" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_create_tour_di" bpmnElement="Activity_create_tour">
+        <dc:Bounds x="630" y="280" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_update_status_di" bpmnElement="Activity_update_status" bioc:stroke="#6b3c00" bioc:fill="#ffe0b2" color:background-color="#ffe0b2" color:border-color="#6b3c00">
+        <dc:Bounds x="810" y="280" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0ruyaxs_di" bpmnElement="Event_0ruyaxs">
+        <dc:Bounds x="502" y="22" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="483" y="-2" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Association_optimistic_di" bpmnElement="Association_optimistic">
+        <di:waypoint x="863" y="360" />
+        <di:waypoint x="881" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="TextAnnotation_fetch_di" bpmnElement="TextAnnotation_fetch">
+        <dc:Bounds x="150" y="70" width="260" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_tour_di" bpmnElement="TextAnnotation_tour">
+        <dc:Bounds x="780" y="-13" width="220" height="105" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_0d1dpdy_di" bpmnElement="Flow_0d1dpdy">
+        <di:waypoint x="175" y="240" />
+        <di:waypoint x="243" y="240" />
+        <di:waypoint x="243" y="320" />
+        <di:waypoint x="310" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1o0hl68_di" bpmnElement="Flow_1o0hl68">
+        <di:waypoint x="175" y="400" />
+        <di:waypoint x="243" y="400" />
+        <di:waypoint x="243" y="320" />
+        <di:waypoint x="310" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Activity_fetch_route_table_di" bpmnElement="Activity_fetch_route_table">
+        <dc:Bounds x="260" y="480" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_fetch_pick_locations_di" bpmnElement="Activity_fetch_pick_locations">
+        <dc:Bounds x="420" y="480" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_fetch_to_routetable_di" bpmnElement="Flow_fetch_to_routetable">
+        <di:waypoint x="360" y="360" />
+        <di:waypoint x="360" y="440" />
+        <di:waypoint x="310" y="440" />
+        <di:waypoint x="310" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_routetable_to_picklocs_di" bpmnElement="Flow_routetable_to_picklocs">
+        <di:waypoint x="360" y="520" />
+        <di:waypoint x="420" y="520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_to_gateway_di" bpmnElement="Flow_to_gateway">
+        <di:waypoint x="520" y="480" />
+        <di:waypoint x="520" y="345" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_yes_batch_di" bpmnElement="Flow_yes_batch">
+        <di:waypoint x="545" y="320" />
+        <di:waypoint x="630" y="320" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="580" y="302" width="19" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_to_update_di" bpmnElement="Flow_to_update">
+        <di:waypoint x="730" y="320" />
+        <di:waypoint x="810" y="320" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_loop_back_di" bpmnElement="Flow_loop_back">
+        <di:waypoint x="860" y="280" />
+        <di:waypoint x="860" y="200" />
+        <di:waypoint x="520" y="200" />
+        <di:waypoint x="520" y="295" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_no_batch_di" bpmnElement="Flow_no_batch">
+        <di:waypoint x="520" y="295" />
+        <di:waypoint x="520" y="58" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="528" y="179" width="15" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_fetch_di" bpmnElement="Association_fetch">
+        <di:waypoint x="344" y="280" />
+        <di:waypoint x="310" y="150" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_tour_di" bpmnElement="Association_tour">
+        <di:waypoint x="714" y="280" />
+        <di:waypoint x="852" y="92" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="TextAnnotation_optimistic_di" bpmnElement="TextAnnotation_optimistic">
+        <dc:Bounds x="780" y="430" width="220" height="100" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

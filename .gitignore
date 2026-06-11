@@ -1,0 +1,10 @@
+# build artifacts
+/bpmnfmt
+/out/
+/dist/
+*.clean.bpmn
+
+# editor noise
+.idea/
+.vscode/
+*.swp

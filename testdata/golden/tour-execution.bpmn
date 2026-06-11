@@ -1,0 +1,776 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1ksue5u" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.22.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.4.0">
+  <!--
+    CANONICAL WF102 diagram — synced to the Go implementation
+    (workflows/102-tour-execution/temporal/workflow.go) on 2026-06-10.
+
+    This file replaced two stale artifacts:
+      - the previous tour-execution.bpmn still showed the v3 shortage
+        order (write-off BEFORE the alternatives gateway, no
+        delete-original) — the exact ordering whose failure produced
+        a 2026-05-27 live shortage incident;
+      - tour-execution.shortage-fix.bpmn carried the corrected v3.2
+        shortage branch but was never committed and lacked everything
+        below.
+
+    Synced in this revision (matching code):
+      1. v3.2 shortage order (delete original FIRST — see the history
+         comment at the shortage branch).
+      2. ConfirmShelfEmpty guard gate between the
+         shelf-empty report and the shortage branch; Cancel returns to
+         the scan with zero side effects.
+      3. Quantity bounds on ScanPickItem: the workflow rejects
+         actualQuantity < 0 or > expected inline (re-prompt with
+         ctx.errors). Authoritative server-side bound — the mobile
+         NumberField has no ceiling.
+      4. FetchTourDetails + empty-tour bypass (0 movements → complete
+         immediately, no trolley/labels/delivery).
+      5. ScanTrolley / ScanOrderBox wired into the flow (they were
+         floating). Bind rejections (unknown trolley, trolley claimed
+         by another RUNNING tour, stale box label) re-prompt inline
+         via ctx.errors — retry loops not drawn per scan gate.
+      6. DeliverTrolleyToPackingZone: the physical trolley repo-move
+         (boxes follow as children) after the picker's DeliverToPacking
+         confirmation, before BookIntoPacking.
+      7. Replenishment DRAIN LOOP: one "Wait for replenishment"
+         user-task gate PER queued shortfall task (its Validate only
+         accepts that task's SKU), then the fresh pick movement is
+         inserted and re-picked. A re-pick that shorts again queues
+         another task → another gate. Deliberately unbounded
+         (ops-driven), like WF100's hourly retry.
+      8. No Finish gate: the workflow auto-completes after
+         BookIntoPacking. The old "Instruct user to attach labels" and
+         "Confirm tour finished" user tasks are gone from code and now
+         from the diagram too.
+      9. Compensation (not drawable as sequence flow — Temporal defers
+         on a disconnected context, run on EVERY non-completed exit):
+         AbortTour deletes the collection's executed=false movements
+         (releasing outgoing_stock reservations) and reverts
+         still-in_tour orders to fulfillable; ReleaseTrolley clears the
+         trolley claim. See the standalone annotation near the start
+         event.
+  -->
+  <bpmn:process id="Process_0vf1lkj" isExecutable="true">
+    <bpmn:startEvent id="Event_05zjcyb" name="MC / Tour created">
+      <bpmn:outgoing>Flow_0lxh5gu</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_0lxh5gu" sourceRef="Event_05zjcyb" targetRef="Activity_fetch_tour" />
+    <bpmn:serviceTask id="Activity_fetch_tour" name="Fetch tour details (orders, movements, write-off sink)">
+      <bpmn:incoming>Flow_0lxh5gu</bpmn:incoming>
+      <bpmn:outgoing>Flow_fetch_to_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_fetch_to_gw" sourceRef="Activity_fetch_tour" targetRef="Gateway_any_movements" />
+    <bpmn:exclusiveGateway id="Gateway_any_movements" name="Any movements in tour?">
+      <bpmn:incoming>Flow_fetch_to_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_gw_to_print</bpmn:outgoing>
+      <bpmn:outgoing>Flow_gw_empty</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_gw_empty" name="No — complete immediately" sourceRef="Gateway_any_movements" targetRef="Event_empty_tour" />
+    <bpmn:endEvent id="Event_empty_tour" name="Empty tour completed">
+      <bpmn:incoming>Flow_gw_empty</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_gw_to_print" name="Yes" sourceRef="Gateway_any_movements" targetRef="Activity_0t4iewd" />
+    <bpmn:serviceTask id="Activity_0t4iewd" name="Print order labels">
+      <bpmn:incoming>Flow_gw_to_print</bpmn:incoming>
+      <bpmn:outgoing>Flow_print_to_trolley</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <!--
+      Tour-start binding gates (wired since 2026-06-10; they existed as
+      floating tasks before):
+        1. ScanTrolley — picker scans the dynamic acme-trolley repo they
+           grabbed from the parking area. BindTrolley rejects unknown
+           names and trolleys claimed by another RUNNING tour (stale
+           claims of terminal tours are reclaimed); rejections re-prompt
+           inline via ctx.errors.
+        2. ScanOrderBox — once per order in the tour (print order): the
+           picker sticks the order label on an empty box and scans it.
+           BindOrderBox re-parents the box repo under the trolley and
+           rejects order numbers that don't belong to this tour.
+    -->
+    <bpmn:sequenceFlow id="Flow_print_to_trolley" sourceRef="Activity_0t4iewd" targetRef="Activity_scan_trolley" />
+    <bpmn:userTask id="Activity_scan_trolley" name="Scan trolley">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_print_to_trolley</bpmn:incoming>
+      <bpmn:outgoing>Flow_trolley_to_orderbox</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_trolley_to_orderbox" sourceRef="Activity_scan_trolley" targetRef="Activity_scan_order_box" />
+    <bpmn:userTask id="Activity_scan_order_box" name="Scan order box (once per order)">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_trolley_to_orderbox</bpmn:incoming>
+      <bpmn:outgoing>Flow_orderbox_to_src</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_orderbox_to_src" sourceRef="Activity_scan_order_box" targetRef="Activity_1b1t68m" />
+    <bpmn:userTask id="Activity_1b1t68m" name="Scan source slot">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_orderbox_to_src</bpmn:incoming>
+      <bpmn:incoming>Flow_0tcw3fm</bpmn:incoming>
+      <bpmn:incoming>Flow_insert_to_src</bpmn:incoming>
+      <bpmn:outgoing>Flow_pick_src_to_item</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_pick_src_to_item" sourceRef="Activity_1b1t68m" targetRef="Activity_pick_item" />
+    <bpmn:userTask id="Activity_pick_item" name="Scan item barcode + picked count">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_pick_src_to_item</bpmn:incoming>
+      <bpmn:incoming>Flow_confirmgw_no_item</bpmn:incoming>
+      <bpmn:outgoing>Flow_item_to_emptygw</bpmn:outgoing>
+    </bpmn:userTask>
+    <!--
+      ConfirmShelfEmpty guard: tapping "Shelf is empty
+      for this SKU" submits {skuScanned:"", actualQuantity:0,
+      shelfEmpty:true} and routes here BEFORE anything irreversible.
+      Cancel returns to the scan screen with zero side effects; Confirm
+      proceeds (the box scan still happens — all three pick gates always
+      run — and the quantity gateway below then routes to the shortage
+      branch).
+    -->
+    <bpmn:sequenceFlow id="Flow_item_to_emptygw" sourceRef="Activity_pick_item" targetRef="Gateway_shelf_empty" />
+    <bpmn:exclusiveGateway id="Gateway_shelf_empty" name="Shelf-empty reported?">
+      <bpmn:incoming>Flow_item_to_emptygw</bpmn:incoming>
+      <bpmn:outgoing>Flow_emptygw_no_box</bpmn:outgoing>
+      <bpmn:outgoing>Flow_emptygw_yes_confirm</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_emptygw_no_box" name="No" sourceRef="Gateway_shelf_empty" targetRef="Activity_pick_box" />
+    <bpmn:sequenceFlow id="Flow_emptygw_yes_confirm" name="Yes" sourceRef="Gateway_shelf_empty" targetRef="Activity_confirm_shelf_empty" />
+    <bpmn:userTask id="Activity_confirm_shelf_empty" name="Confirm: shelf empty?">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_emptygw_yes_confirm</bpmn:incoming>
+      <bpmn:outgoing>Flow_confirm_to_confirmgw</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_confirm_to_confirmgw" sourceRef="Activity_confirm_shelf_empty" targetRef="Gateway_confirm_empty" />
+    <bpmn:exclusiveGateway id="Gateway_confirm_empty" name="Confirmed?">
+      <bpmn:incoming>Flow_confirm_to_confirmgw</bpmn:incoming>
+      <bpmn:outgoing>Flow_confirmgw_yes_box</bpmn:outgoing>
+      <bpmn:outgoing>Flow_confirmgw_no_item</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_confirmgw_yes_box" name="Yes" sourceRef="Gateway_confirm_empty" targetRef="Activity_pick_box" />
+    <bpmn:sequenceFlow id="Flow_confirmgw_no_item" name="No — back to scan, no side effects" sourceRef="Gateway_confirm_empty" targetRef="Activity_pick_item" />
+    <bpmn:userTask id="Activity_pick_box" name="Scan destination box">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_emptygw_no_box</bpmn:incoming>
+      <bpmn:incoming>Flow_confirmgw_yes_box</bpmn:incoming>
+      <bpmn:outgoing>Flow_1kp0pkq</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_1mr53mh" name="Picker found the expected quantity?">
+      <bpmn:incoming>Flow_1kp0pkq</bpmn:incoming>
+      <bpmn:outgoing>Flow_08lrpnf</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1yetr58</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_1kp0pkq" sourceRef="Activity_pick_box" targetRef="Gateway_1mr53mh" />
+    <bpmn:sequenceFlow id="Flow_0tcw3fm" name="Yes" sourceRef="Gateway_08wsh14" targetRef="Activity_1b1t68m" />
+    <bpmn:exclusiveGateway id="Gateway_08wsh14" name="Any remaining positions without replenishment triggered?">
+      <bpmn:incoming>Flow_08lrpnf</bpmn:incoming>
+      <bpmn:incoming>Flow_08gou0k</bpmn:incoming>
+      <bpmn:incoming>Flow_0rm1m90</bpmn:incoming>
+      <bpmn:outgoing>Flow_0tcw3fm</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1a8fb2c</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_08lrpnf" name="Yes" sourceRef="Gateway_1mr53mh" targetRef="Gateway_08wsh14" />
+    <bpmn:exclusiveGateway id="Gateway_02z33cs" name="Item has another known picking location?">
+      <bpmn:incoming>Flow_enum_to_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_00w2lja</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1wwhlf0</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <!--
+      Shortage flow corrected order (v3.2, validated live 2026-05-27):
+
+      History of the bug this evolved through:
+
+        v3 (pre-fix): Reconcile shortage (write-off + delete + partial
+        pick) ran FIRST, then "alt location?" gateway, then redistribute.
+        By the time redistribute ran, the source's own_quantity was
+        already drained. The alternative slot never received the phantom
+        claim and the picker hit stock-underflow on ExecutePickMovement.
+
+        v3.1 (2026-05-27 morning): reordered so redistribute runs BEFORE
+        the write-off. Looked right on paper. Live e2e (run against
+        a dev environment) revealed a deeper issue: pyck rejects ANY new movement
+        from the source slot while the original pending pick movement is
+        still alive. The original holds an outgoing_stock reservation
+        equal to its quantity, so effective stock = 0 and pyck's
+        CreateInventoryItemMovement validation fails with 'insufficient
+        stock' on redistribute (and would have on the v3 write-off too —
+        same wall, just a different first victim).
+
+      v3.2 (this diagram, matches handleShortage in workflow.go): delete
+      the original pending movement FIRST. That releases the source's
+      outgoing_stock reservation immediately; subsequent redistribute +
+      reconcile activities then see the source's true own_quantity.
+
+      Flow:
+        1. Delete original pending movement (Activity_delete_original) —
+           releases outgoing_stock at the source slot so any new
+           movement from that slot passes pyck's stock validation.
+           Idempotent on Temporal replay.
+        2. Enumerate master-data alternatives (Activity_enumerate_alternatives)
+        3. Gateway: any candidate found?
+           YES → Redistribute claim from failed slot → Insert new
+                 pick at alternative → Reconcile partial pick at
+                 failed slot (write-off only the residual that
+                 redistribute couldn't move; the rest now lives at
+                 the alternative slot in the ledger).
+           NO  → Reconcile shortage with full write-off (the missing
+                 units are truly lost from the perspective of master
+                 data) → Trigger replenishment + queue ShortfallTask
+                 for the post-loop drain (see the replenishment gate).
+    -->
+    <bpmn:sequenceFlow id="Flow_1yetr58" name="No" sourceRef="Gateway_1mr53mh" targetRef="Activity_delete_original" />
+    <bpmn:serviceTask id="Activity_delete_original" name="Delete original pending movement (release reservation)">
+      <bpmn:incoming>Flow_1yetr58</bpmn:incoming>
+      <bpmn:outgoing>Flow_delete_to_enum</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_delete_to_enum" sourceRef="Activity_delete_original" targetRef="Activity_enumerate_alternatives" />
+    <bpmn:serviceTask id="Activity_enumerate_alternatives" name="Enumerate master-data alternative locations">
+      <bpmn:incoming>Flow_delete_to_enum</bpmn:incoming>
+      <bpmn:outgoing>Flow_enum_to_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_enum_to_gw" sourceRef="Activity_enumerate_alternatives" targetRef="Gateway_02z33cs" />
+    <bpmn:sequenceFlow id="Flow_00w2lja" name="Yes" sourceRef="Gateway_02z33cs" targetRef="Activity_0bgjw4w" />
+    <bpmn:serviceTask id="Activity_0bgjw4w" name="Redistribute claim from failed slot to alternative">
+      <bpmn:incoming>Flow_00w2lja</bpmn:incoming>
+      <bpmn:outgoing>Flow_1gv1bva</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_1gv1bva" sourceRef="Activity_0bgjw4w" targetRef="Activity_0xazvfn" />
+    <bpmn:serviceTask id="Activity_0xazvfn" name="Insert new pick movement at alternative slot">
+      <bpmn:incoming>Flow_1gv1bva</bpmn:incoming>
+      <bpmn:outgoing>Flow_xazvfn_to_partial</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_xazvfn_to_partial" sourceRef="Activity_0xazvfn" targetRef="Activity_partial_reconcile" />
+    <bpmn:serviceTask id="Activity_partial_reconcile" name="Reconcile partial pick at failed slot (no write-off)">
+      <bpmn:incoming>Flow_xazvfn_to_partial</bpmn:incoming>
+      <bpmn:outgoing>Flow_08gou0k</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_08gou0k" sourceRef="Activity_partial_reconcile" targetRef="Gateway_08wsh14" />
+    <bpmn:sequenceFlow id="Flow_1wwhlf0" name="No — requires replenishment" sourceRef="Gateway_02z33cs" targetRef="Activity_reconcile_shortage" />
+    <bpmn:serviceTask id="Activity_reconcile_shortage" name="Reconcile shortage with full write-off">
+      <bpmn:incoming>Flow_1wwhlf0</bpmn:incoming>
+      <bpmn:outgoing>Flow_reconcile_to_replenish</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_reconcile_to_replenish" sourceRef="Activity_reconcile_shortage" targetRef="Activity_0jtm7jf" />
+    <bpmn:serviceTask id="Activity_0jtm7jf" name="Trigger replenishment in host system and queue shortfall task">
+      <bpmn:incoming>Flow_reconcile_to_replenish</bpmn:incoming>
+      <bpmn:outgoing>Flow_0rm1m90</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_0rm1m90" sourceRef="Activity_0jtm7jf" targetRef="Gateway_08wsh14" />
+    <bpmn:exclusiveGateway id="Gateway_02fo3jw" name="Do we have complete Orders?">
+      <bpmn:incoming>Flow_1a8fb2c</bpmn:incoming>
+      <bpmn:outgoing>Flow_1rt90d1</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1kohpbo</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_1a8fb2c" sourceRef="Gateway_08wsh14" targetRef="Gateway_02fo3jw" />
+    <bpmn:sequenceFlow id="Flow_1rt90d1" name="Yes" sourceRef="Gateway_02fo3jw" targetRef="Activity_1jpf51l" />
+    <bpmn:userTask id="Activity_1jpf51l" name="Bring XYZ Order to Packing Zone">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1rt90d1</bpmn:incoming>
+      <bpmn:outgoing>Flow_0urf8fg</bpmn:outgoing>
+    </bpmn:userTask>
+    <!--
+      Replenishment drain loop (matches workflow.go step 6): the gate
+      below is awaited ONCE PER queued ShortfallTask — its widget shows
+      that task's SKU/slot/quantity and its Validate only accepts that
+      SKU. After each confirmation the fresh pick movement is inserted
+      at the refilled slot and the flow loops back into the pick loop.
+      A re-pick that shorts again queues another task → another pass
+      through this gate. (The earlier implementation awaited once for
+      ALL tasks and dropped tasks queued during re-picks.)
+    -->
+    <bpmn:sequenceFlow id="Flow_1kohpbo" name="No" sourceRef="Gateway_02fo3jw" targetRef="Activity_0e37vw3" />
+    <bpmn:userTask id="Activity_0e37vw3" name="Wait for replenishment to complete (one gate per shortfall task)">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_1kohpbo</bpmn:incoming>
+      <bpmn:outgoing>Flow_replenish_to_insert</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_replenish_to_insert" sourceRef="Activity_0e37vw3" targetRef="Activity_insert_shortfall" />
+    <bpmn:serviceTask id="Activity_insert_shortfall" name="Insert fresh pick movement at refilled slot">
+      <bpmn:incoming>Flow_replenish_to_insert</bpmn:incoming>
+      <bpmn:outgoing>Flow_insert_to_src</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_insert_to_src" sourceRef="Activity_insert_shortfall" targetRef="Activity_1b1t68m" />
+    <bpmn:sequenceFlow id="Flow_0urf8fg" sourceRef="Activity_1jpf51l" targetRef="Activity_deliver_trolley" />
+    <bpmn:serviceTask id="Activity_deliver_trolley" name="Move trolley repo into PACKING-ZONE (boxes follow as children)">
+      <bpmn:incoming>Flow_0urf8fg</bpmn:incoming>
+      <bpmn:outgoing>Flow_trolley_to_book</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_trolley_to_book" sourceRef="Activity_deliver_trolley" targetRef="Activity_05s8j5b" />
+    <bpmn:serviceTask id="Activity_05s8j5b" name="Book Items into Packing Zone + orders → picked">
+      <bpmn:incoming>Flow_trolley_to_book</bpmn:incoming>
+      <bpmn:outgoing>Flow_book_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_book_to_end" sourceRef="Activity_05s8j5b" targetRef="Event_1jvr8va" />
+    <bpmn:endEvent id="Event_1jvr8va" name="Tour completed (auto — no Finish gate)">
+      <bpmn:incoming>Flow_book_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:textAnnotation id="TextAnnotation_1cv23z6">
+      <bpmn:text>Printer: zone label printer
+Open questions: Print server setup?
+Direct access from mobile device?</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_1jdipc6" associationDirection="None" sourceRef="Activity_0t4iewd" targetRef="TextAnnotation_1cv23z6" />
+    <bpmn:textAnnotation id="TextAnnotation_0ys7j7p">
+      <bpmn:text>We need to ensure that they are able to pick "whatever they can get" from that repo</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_091n2v1" associationDirection="None" sourceRef="Flow_1yetr58" targetRef="TextAnnotation_0ys7j7p" />
+    <bpmn:textAnnotation id="TextAnnotation_abort_compensation">
+      <bpmn:text>Compensation (Temporal defers on a disconnected context — runs on EVERY non-completed exit: cancel, terminate, failure; not drawable as sequence flow):
+1. AbortTour — deletes the collection's executed=false movements (releases the slots' outgoing_stock reservations) and reverts still-in_tour orders to "fulfillable" so the next WF101 run re-tours them. Idempotent; bounded retries.
+2. ReleaseTrolley — clears this tour's trolley claim.
+Executed picks stay executed (physical reality); their boxes remain on the trolley for manual return-to-shelf.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_abort_compensation" associationDirection="None" sourceRef="Event_05zjcyb" targetRef="TextAnnotation_abort_compensation" />
+    <bpmn:textAnnotation id="TextAnnotation_overpick_guard">
+      <bpmn:text>Quantity bounds (server-authoritative): the workflow rejects actualQuantity &lt; 0 or &gt; expected inline and re-prompts with the violation in ctx.errors. Web widget also blocks client-side; the mobile NumberField has no ceiling, so this guard is the real one.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_overpick_guard" associationDirection="None" sourceRef="Activity_pick_item" targetRef="TextAnnotation_overpick_guard" />
+    <!--
+      ID: annotations below link each user task to its widget name (the
+      `widget <Name> =` declaration in flutter/index.rfwtxt and the
+      matching React component under web/). The workflowgen stitcher
+      reads widget declarations from the rfwtxt; these annotations
+      document the mapping for humans. The legacy AttachLabels and
+      Finish user tasks were removed from the FLOW in the 2026-06-10
+      sync (they had already been removed from code and widgets in the
+      trolley/box-binding rewrite).
+    -->
+    <bpmn:textAnnotation id="TextAnnotation_widget_scan_trolley">
+      <bpmn:text>ID: ScanTrolley</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_scan_trolley" associationDirection="None" sourceRef="Activity_scan_trolley" targetRef="TextAnnotation_widget_scan_trolley" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_scan_order_box">
+      <bpmn:text>ID: ScanOrderBox</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_scan_order_box" associationDirection="None" sourceRef="Activity_scan_order_box" targetRef="TextAnnotation_widget_scan_order_box" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_scan_pick_source">
+      <bpmn:text>ID: ScanPickSource</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_scan_pick_source" associationDirection="None" sourceRef="Activity_1b1t68m" targetRef="TextAnnotation_widget_scan_pick_source" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_scan_pick_item">
+      <bpmn:text>ID: ScanPickItem</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_scan_pick_item" associationDirection="None" sourceRef="Activity_pick_item" targetRef="TextAnnotation_widget_scan_pick_item" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_confirm_shelf_empty">
+      <bpmn:text>ID: ConfirmShelfEmpty</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_confirm_shelf_empty" associationDirection="None" sourceRef="Activity_confirm_shelf_empty" targetRef="TextAnnotation_widget_confirm_shelf_empty" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_scan_pick_box">
+      <bpmn:text>ID: ScanPickBox</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_scan_pick_box" associationDirection="None" sourceRef="Activity_pick_box" targetRef="TextAnnotation_widget_scan_pick_box" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_deliver_to_packing">
+      <bpmn:text>ID: DeliverToPacking</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_deliver_to_packing" associationDirection="None" sourceRef="Activity_1jpf51l" targetRef="TextAnnotation_widget_deliver_to_packing" />
+    <bpmn:textAnnotation id="TextAnnotation_widget_replenishment_complete">
+      <bpmn:text>ID: ReplenishmentComplete</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_widget_replenishment_complete" associationDirection="None" sourceRef="Activity_0e37vw3" targetRef="TextAnnotation_widget_replenishment_complete" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_0vf1lkj">
+      <bpmndi:BPMNShape id="Event_05zjcyb_di" bpmnElement="Event_05zjcyb">
+        <dc:Bounds x="156" y="408" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="148" y="451" width="53" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_fetch_tour_di" bpmnElement="Activity_fetch_tour">
+        <dc:Bounds x="284" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_any_movements_di" bpmnElement="Gateway_any_movements" isMarkerVisible="true">
+        <dc:Bounds x="469" y="401" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="451" y="364" width="86" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_empty_tour_di" bpmnElement="Event_empty_tour">
+        <dc:Bounds x="476" y="602" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="465" y="645" width="58" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0t4iewd_di" bpmnElement="Activity_0t4iewd" bioc:stroke="#6b3c00" bioc:fill="#ffe0b2" color:background-color="#ffe0b2" color:border-color="#6b3c00">
+        <dc:Bounds x="604" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_scan_trolley_di" bpmnElement="Activity_scan_trolley">
+        <dc:Bounds x="764" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_scan_order_box_di" bpmnElement="Activity_scan_order_box">
+        <dc:Bounds x="924" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1b1t68m_di" bpmnElement="Activity_1b1t68m">
+        <dc:Bounds x="1084" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_pick_item_di" bpmnElement="Activity_pick_item">
+        <dc:Bounds x="1244" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_shelf_empty_di" bpmnElement="Gateway_shelf_empty" isMarkerVisible="true">
+        <dc:Bounds x="1429" y="401" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1422" y="364" width="64" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_confirm_shelf_empty_di" bpmnElement="Activity_confirm_shelf_empty">
+        <dc:Bounds x="1404" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_confirm_empty_di" bpmnElement="Gateway_confirm_empty" isMarkerVisible="true">
+        <dc:Bounds x="1589" y="595" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1519" y="586" width="62" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_pick_box_di" bpmnElement="Activity_pick_box">
+        <dc:Bounds x="1564" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1mr53mh_di" bpmnElement="Gateway_1mr53mh" isMarkerVisible="true">
+        <dc:Bounds x="1749" y="401" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1731" y="349" width="87" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_08wsh14_di" bpmnElement="Gateway_08wsh14" isMarkerVisible="true">
+        <dc:Bounds x="2709" y="401" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2613" y="347" width="89" height="60" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_02z33cs_di" bpmnElement="Gateway_02z33cs" isMarkerVisible="true">
+        <dc:Bounds x="2069" y="595" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2050" y="543" width="89" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_delete_original_di" bpmnElement="Activity_delete_original">
+        <dc:Bounds x="1724" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_enumerate_alternatives_di" bpmnElement="Activity_enumerate_alternatives">
+        <dc:Bounds x="1884" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0bgjw4w_di" bpmnElement="Activity_0bgjw4w">
+        <dc:Bounds x="2204" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0xazvfn_di" bpmnElement="Activity_0xazvfn">
+        <dc:Bounds x="2364" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_partial_reconcile_di" bpmnElement="Activity_partial_reconcile">
+        <dc:Bounds x="2524" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_reconcile_shortage_di" bpmnElement="Activity_reconcile_shortage">
+        <dc:Bounds x="2044" y="802" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0jtm7jf_di" bpmnElement="Activity_0jtm7jf">
+        <dc:Bounds x="2684" y="802" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_02fo3jw_di" bpmnElement="Gateway_02fo3jw" isMarkerVisible="true">
+        <dc:Bounds x="2869" y="401" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2863" y="349" width="63" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1jpf51l_di" bpmnElement="Activity_1jpf51l">
+        <dc:Bounds x="3004" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0e37vw3_di" bpmnElement="Activity_0e37vw3">
+        <dc:Bounds x="2844" y="802" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_insert_shortfall_di" bpmnElement="Activity_insert_shortfall">
+        <dc:Bounds x="3004" y="802" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_deliver_trolley_di" bpmnElement="Activity_deliver_trolley">
+        <dc:Bounds x="3164" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_05s8j5b_di" bpmnElement="Activity_05s8j5b">
+        <dc:Bounds x="3324" y="386" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_1jvr8va_di" bpmnElement="Event_1jvr8va">
+        <dc:Bounds x="3516" y="408" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3490" y="451" width="89" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_1cv23z6_di" bpmnElement="TextAnnotation_1cv23z6">
+        <dc:Bounds x="550" y="50" width="209" height="57" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_0ys7j7p_di" bpmnElement="TextAnnotation_0ys7j7p">
+        <dc:Bounds x="2028" y="50" width="253" height="42" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_abort_compensation_di" bpmnElement="TextAnnotation_abort_compensation">
+        <dc:Bounds x="50" y="50" width="249" height="237" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_overpick_guard_di" bpmnElement="TextAnnotation_overpick_guard">
+        <dc:Bounds x="1750" y="50" width="249" height="102" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_scan_trolley_di" bpmnElement="TextAnnotation_widget_scan_trolley">
+        <dc:Bounds x="764" y="347" width="100" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_scan_order_box_di" bpmnElement="TextAnnotation_widget_scan_order_box">
+        <dc:Bounds x="917" y="347" width="115" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_scan_pick_source_di" bpmnElement="TextAnnotation_widget_scan_pick_source">
+        <dc:Bounds x="1152" y="347" width="125" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_scan_pick_item_di" bpmnElement="TextAnnotation_widget_scan_pick_item">
+        <dc:Bounds x="1279" y="347" width="110" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_confirm_shelf_empty_di" bpmnElement="TextAnnotation_widget_confirm_shelf_empty">
+        <dc:Bounds x="1464" y="541" width="140" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_scan_pick_box_di" bpmnElement="TextAnnotation_widget_scan_pick_box">
+        <dc:Bounds x="1561" y="347" width="107" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_deliver_to_packing_di" bpmnElement="TextAnnotation_widget_deliver_to_packing">
+        <dc:Bounds x="2989" y="347" width="131" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_widget_replenishment_complete_di" bpmnElement="TextAnnotation_widget_replenishment_complete">
+        <dc:Bounds x="2900" y="748" width="149" height="40" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_0lxh5gu_di" bpmnElement="Flow_0lxh5gu">
+        <di:waypoint x="192" y="426" />
+        <di:waypoint x="284" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fetch_to_gw_di" bpmnElement="Flow_fetch_to_gw">
+        <di:waypoint x="384" y="426" />
+        <di:waypoint x="469" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_gw_empty_di" bpmnElement="Flow_gw_empty">
+        <di:waypoint x="494" y="451" />
+        <di:waypoint x="494" y="602" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="502" y="456" width="77" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_gw_to_print_di" bpmnElement="Flow_gw_to_print">
+        <di:waypoint x="519" y="426" />
+        <di:waypoint x="604" y="426" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="527" y="406" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_print_to_trolley_di" bpmnElement="Flow_print_to_trolley">
+        <di:waypoint x="704" y="426" />
+        <di:waypoint x="764" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_trolley_to_orderbox_di" bpmnElement="Flow_trolley_to_orderbox">
+        <di:waypoint x="864" y="426" />
+        <di:waypoint x="924" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_orderbox_to_src_di" bpmnElement="Flow_orderbox_to_src">
+        <di:waypoint x="1024" y="426" />
+        <di:waypoint x="1084" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pick_src_to_item_di" bpmnElement="Flow_pick_src_to_item">
+        <di:waypoint x="1184" y="426" />
+        <di:waypoint x="1244" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_item_to_emptygw_di" bpmnElement="Flow_item_to_emptygw">
+        <di:waypoint x="1344" y="426" />
+        <di:waypoint x="1429" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_emptygw_no_box_di" bpmnElement="Flow_emptygw_no_box">
+        <di:waypoint x="1479" y="426" />
+        <di:waypoint x="1564" y="426" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1487" y="406" width="15" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_emptygw_yes_confirm_di" bpmnElement="Flow_emptygw_yes_confirm">
+        <di:waypoint x="1454" y="451" />
+        <di:waypoint x="1454" y="580" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1462" y="456" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_confirm_to_confirmgw_di" bpmnElement="Flow_confirm_to_confirmgw">
+        <di:waypoint x="1504" y="620" />
+        <di:waypoint x="1589" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_confirmgw_yes_box_di" bpmnElement="Flow_confirmgw_yes_box">
+        <di:waypoint x="1614" y="595" />
+        <di:waypoint x="1614" y="466" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1622" y="575" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_confirmgw_no_item_di" bpmnElement="Flow_confirmgw_no_item">
+        <di:waypoint x="1614" y="645" />
+        <di:waypoint x="1614" y="730" />
+        <di:waypoint x="1294" y="730" />
+        <di:waypoint x="1294" y="466" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1622" y="650" width="99" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1kp0pkq_di" bpmnElement="Flow_1kp0pkq">
+        <di:waypoint x="1664" y="426" />
+        <di:waypoint x="1749" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0tcw3fm_di" bpmnElement="Flow_0tcw3fm">
+        <di:waypoint x="2734" y="401" />
+        <di:waypoint x="2734" y="329" />
+        <di:waypoint x="1134" y="329" />
+        <di:waypoint x="1134" y="386" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2742" y="381" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_08lrpnf_di" bpmnElement="Flow_08lrpnf">
+        <di:waypoint x="1799" y="426" />
+        <di:waypoint x="2709" y="426" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1807" y="406" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1yetr58_di" bpmnElement="Flow_1yetr58">
+        <di:waypoint x="1774" y="451" />
+        <di:waypoint x="1774" y="580" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1782" y="456" width="15" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_delete_to_enum_di" bpmnElement="Flow_delete_to_enum">
+        <di:waypoint x="1824" y="620" />
+        <di:waypoint x="1884" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_enum_to_gw_di" bpmnElement="Flow_enum_to_gw">
+        <di:waypoint x="1984" y="620" />
+        <di:waypoint x="2069" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_00w2lja_di" bpmnElement="Flow_00w2lja">
+        <di:waypoint x="2119" y="620" />
+        <di:waypoint x="2204" y="620" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2127" y="600" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1gv1bva_di" bpmnElement="Flow_1gv1bva">
+        <di:waypoint x="2304" y="620" />
+        <di:waypoint x="2364" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_xazvfn_to_partial_di" bpmnElement="Flow_xazvfn_to_partial">
+        <di:waypoint x="2464" y="620" />
+        <di:waypoint x="2524" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_08gou0k_di" bpmnElement="Flow_08gou0k">
+        <di:waypoint x="2624" y="620" />
+        <di:waypoint x="2734" y="620" />
+        <di:waypoint x="2734" y="451" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1wwhlf0_di" bpmnElement="Flow_1wwhlf0">
+        <di:waypoint x="2094" y="645" />
+        <di:waypoint x="2094" y="802" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2102" y="650" width="75" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_reconcile_to_replenish_di" bpmnElement="Flow_reconcile_to_replenish">
+        <di:waypoint x="2144" y="842" />
+        <di:waypoint x="2684" y="842" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0rm1m90_di" bpmnElement="Flow_0rm1m90">
+        <di:waypoint x="2734" y="802" />
+        <di:waypoint x="2734" y="451" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1a8fb2c_di" bpmnElement="Flow_1a8fb2c">
+        <di:waypoint x="2759" y="426" />
+        <di:waypoint x="2869" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1rt90d1_di" bpmnElement="Flow_1rt90d1">
+        <di:waypoint x="2919" y="426" />
+        <di:waypoint x="3004" y="426" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2927" y="406" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1kohpbo_di" bpmnElement="Flow_1kohpbo">
+        <di:waypoint x="2894" y="451" />
+        <di:waypoint x="2894" y="802" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2902" y="456" width="15" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_replenish_to_insert_di" bpmnElement="Flow_replenish_to_insert">
+        <di:waypoint x="2944" y="842" />
+        <di:waypoint x="3004" y="842" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_insert_to_src_di" bpmnElement="Flow_insert_to_src">
+        <di:waypoint x="3054" y="882" />
+        <di:waypoint x="3054" y="900" />
+        <di:waypoint x="1134" y="900" />
+        <di:waypoint x="1134" y="466" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0urf8fg_di" bpmnElement="Flow_0urf8fg">
+        <di:waypoint x="3104" y="426" />
+        <di:waypoint x="3164" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_trolley_to_book_di" bpmnElement="Flow_trolley_to_book">
+        <di:waypoint x="3264" y="426" />
+        <di:waypoint x="3324" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_book_to_end_di" bpmnElement="Flow_book_to_end">
+        <di:waypoint x="3424" y="426" />
+        <di:waypoint x="3516" y="426" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_1jdipc6_di" bpmnElement="Association_1jdipc6">
+        <di:waypoint x="654" y="386" />
+        <di:waypoint x="654" y="107" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_091n2v1_di" bpmnElement="Association_091n2v1">
+        <di:waypoint x="1774" y="516" />
+        <di:waypoint x="2136" y="92" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_abort_compensation_di" bpmnElement="Association_abort_compensation">
+        <di:waypoint x="174" y="408" />
+        <di:waypoint x="174" y="287" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_overpick_guard_di" bpmnElement="Association_overpick_guard">
+        <di:waypoint x="1344" y="398" />
+        <di:waypoint x="1783" y="152" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_scan_trolley_di" bpmnElement="Association_widget_scan_trolley">
+        <di:waypoint x="814" y="386" />
+        <di:waypoint x="814" y="372" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_scan_order_box_di" bpmnElement="Association_widget_scan_order_box">
+        <di:waypoint x="974" y="386" />
+        <di:waypoint x="974" y="372" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_scan_pick_source_di" bpmnElement="Association_widget_scan_pick_source">
+        <di:waypoint x="1182" y="386" />
+        <di:waypoint x="1199" y="372" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_scan_pick_item_di" bpmnElement="Association_widget_scan_pick_item">
+        <di:waypoint x="1318" y="386" />
+        <di:waypoint x="1327" y="372" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_confirm_shelf_empty_di" bpmnElement="Association_widget_confirm_shelf_empty">
+        <di:waypoint x="1502" y="580" />
+        <di:waypoint x="1519" y="566" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_scan_pick_box_di" bpmnElement="Association_widget_scan_pick_box">
+        <di:waypoint x="1614" y="386" />
+        <di:waypoint x="1614" y="372" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_deliver_to_packing_di" bpmnElement="Association_widget_deliver_to_packing">
+        <di:waypoint x="3054" y="386" />
+        <di:waypoint x="3054" y="372" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_widget_replenishment_complete_di" bpmnElement="Association_widget_replenishment_complete">
+        <di:waypoint x="2938" y="802" />
+        <di:waypoint x="2953" y="788" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

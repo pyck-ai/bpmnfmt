@@ -1,0 +1,105 @@
+name: release
+
+# Publishing a Go module = the git tag + the proxy caching that version.
+# A GitHub Release creates the tag, so this workflow runs on release publish:
+# it gates on tests, attaches cross-platform binaries to the release, and
+# warms the Go module proxy so `go get …@<version>` and pkg.go.dev resolve it.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # upload release assets
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          check-latest: true
+          cache: false
+      - name: Check formatting
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "$out"; echo "::error::gofmt found unformatted files"; exit 1; fi
+      - run: go vet ./...
+      - run: go test ./...
+
+  binaries:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          check-latest: true
+          cache: false
+      - name: Build and archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          name="bpmnfmt_${VERSION}_${GOOS}_${GOARCH}"
+          bin=bpmnfmt
+          [ "$GOOS" = windows ] && bin=bpmnfmt.exe
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$bin" ./cmd/bpmnfmt
+          mkdir -p dist
+          if [ "$GOOS" = windows ]; then
+            zip "dist/${name}.zip" "$bin" README.md LICENSE
+          else
+            tar -czf "dist/${name}.tar.gz" "$bin" README.md LICENSE
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 1
+
+  publish-binaries:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * | tee checksums.txt
+      - name: Attach assets to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  publish-module:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm the Go module proxy
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          mod=github.com/pyck-ai/bpmnfmt
+          echo "Requesting ${mod}@${VERSION} from proxy.golang.org…"
+          if curl -fsSL "https://proxy.golang.org/${mod}/@v/${VERSION}.info"; then
+            echo
+            echo "Published: go get ${mod}@${VERSION}"
+          else
+            echo "::warning::proxy could not fetch ${mod}@${VERSION} — expected for a private repo; consumers set GOPRIVATE=github.com/pyck-ai/* and fetch the tag directly"
+          fi

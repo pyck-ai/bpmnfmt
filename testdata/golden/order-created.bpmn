@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1ksue5u" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.22.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.4.0">
+  <bpmn:process id="Process_OrderCreated" name="ACME_Picking_OrderCreated" isExecutable="true">
+    <bpmn:documentation>Workflow 100: Triggered by picking.order.create signal.
+Checks whether ALL order items are available in the Z2 picking zone (aisles 01-14).
+If yes: sets order data.status="fulfillable" + data.statusAt=timestamp.
+If no: logs unavailable items (host notification placeholder), waits 1h, retries indefinitely.
+
+GOTCHA: Availability is checked via item.data.storageSlots (not Pyck stock model).
+The host system cannot export per-location stock quantities, so we track which
+locations an article is assigned to (from StorageSlots.json) but not how many units
+are at each location. An item is "available in Z2" if it has at least one
+storage-slot entry with zone=="Z2".
+
+GOTCHA: A few articles have no storageSlots at all (orphaned in host system).
+Orders containing these items will loop indefinitely until the data is fixed.
+
+GOTCHA: No retry limit on the hourly loop. The workflow will run forever for
+permanently unavailable items. Consider adding a max retry / timeout later.</bpmn:documentation>
+    <bpmn:startEvent id="StartEvent_1" name="Picking Order&#10;Created">
+      <bpmn:documentation>Signal: picking.order.create
+Input: PickingOrder ID from the signal payload.
+The order must have dataTypeSlug=acme-picking-order with order items
+using dataTypeSlug=acme-picking-order-item.</bpmn:documentation>
+      <bpmn:outgoing>Flow_0r6hzjx</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_0r6hzjx" sourceRef="StartEvent_1" targetRef="Activity_1h7v8uq" />
+    <bpmn:serviceTask id="Activity_1h7v8uq" name="Check ALL order items available in Zone Z2">
+      <bpmn:documentation>Activity: CheckItemAvailability
+
+1. Fetch the picking order and its order items (relay connection).
+2. For each order item, resolve the inventory item by SKU.
+3. Read item.data.storageSlots array.
+4. Check if ANY entry has zone=="Z2".
+5. ALL items must pass for the order to be available.
+
+Returns: { available: bool, missingItems: []string }
+
+SCOPE: Only Zone Z2 (aisles 01-14). Other picking zones (Z1, Z3) are excluded.
+DEFINITION: Available = every order item has at least one storage slot in Z2. Partial availability is NOT sufficient.</bpmn:documentation>
+      <bpmn:incoming>Flow_0r6hzjx</bpmn:incoming>
+      <bpmn:incoming>Flow_0m830hg</bpmn:incoming>
+      <bpmn:outgoing>Flow_0pg7szv</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_0xcskz4" name="All items&#10;available?">
+      <bpmn:incoming>Flow_0pg7szv</bpmn:incoming>
+      <bpmn:outgoing>Flow_1p31hon</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1uugdk4</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_0pg7szv" sourceRef="Activity_1h7v8uq" targetRef="Gateway_0xcskz4" />
+    <bpmn:sequenceFlow id="Flow_1p31hon" name="No" sourceRef="Gateway_0xcskz4" targetRef="Activity_001b069" />
+    <bpmn:sequenceFlow id="Flow_1lqokom" sourceRef="Activity_001b069" targetRef="Event_0hj0xec" />
+    <bpmn:intermediateCatchEvent id="Event_0hj0xec" name="Wait 1 hour">
+      <bpmn:documentation>Temporal: workflow.Sleep(ctx, 1*time.Hour)
+No retry limit -- loops indefinitely until all items are available.</bpmn:documentation>
+      <bpmn:incoming>Flow_1lqokom</bpmn:incoming>
+      <bpmn:outgoing>Flow_0m830hg</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_1aqfhkg" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="Flow_0m830hg" sourceRef="Event_0hj0xec" targetRef="Activity_1h7v8uq" />
+    <bpmn:serviceTask id="Activity_001b069" name="Log unavailable items (host notification placeholder)">
+      <bpmn:documentation>Activity: NotifyHostUnavailable
+
+Currently a placeholder: logs which items are missing from Z2.
+Format: "Order {extOrderNo}: items unavailable in Z2: [{sku1}, {sku2}]"
+
+TODO: Replace with actual host system notification (webhook/API call)
+when the integration endpoint is defined.</bpmn:documentation>
+      <bpmn:incoming>Flow_1p31hon</bpmn:incoming>
+      <bpmn:outgoing>Flow_1lqokom</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Activity_1jcm9kt" name="Mark order as fulfillable">
+      <bpmn:documentation>Activity: MarkOrderFulfillable
+
+Updates the picking order's data field:
+  data.status = "fulfillable"
+  data.statusAt = current ISO timestamp
+
+Uses: updatePickingOrder mutation with dataTypeSlug=acme-picking-order.
+The tour-creation workflow (101) queries orders where data.status=="fulfillable".</bpmn:documentation>
+      <bpmn:incoming>Flow_1uugdk4</bpmn:incoming>
+      <bpmn:outgoing>Flow_14ybmli</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_1uugdk4" name="Yes" sourceRef="Gateway_0xcskz4" targetRef="Activity_1jcm9kt" />
+    <bpmn:endEvent id="Event_0icc7ya" name="Order fulfillable">
+      <bpmn:incoming>Flow_14ybmli</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_14ybmli" sourceRef="Activity_1jcm9kt" targetRef="Event_0icc7ya" />
+    <bpmn:textAnnotation id="TextAnnotation_scope">
+      <bpmn:text>Scope: Zone Z2 only (aisles 01-14)
+Check: item.data.storageSlots.any(zone=="Z2")
+NOT using Pyck stock model (host can't export per-location qty)</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_scope" associationDirection="None" sourceRef="Activity_1h7v8uq" targetRef="TextAnnotation_scope" />
+    <bpmn:textAnnotation id="TextAnnotation_retry">
+      <bpmn:text>No retry limit -- loops hourly until available.
+Orphaned articles (no storageSlots) will block forever.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_retry" associationDirection="None" sourceRef="Event_0hj0xec" targetRef="TextAnnotation_retry" />
+    <bpmn:textAnnotation id="TextAnnotation_fulfill">
+      <bpmn:text>Sets data.status="fulfillable" + data.statusAt on the order.
+Tour-creation workflow (101) queries this status.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_fulfill" associationDirection="None" sourceRef="Activity_1jcm9kt" targetRef="TextAnnotation_fulfill" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_OrderCreated">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="68" y="233" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="276" width="73" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1h7v8uq_di" bpmnElement="Activity_1h7v8uq">
+        <dc:Bounds x="196" y="211" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_0xcskz4_di" bpmnElement="Gateway_0xcskz4" isMarkerVisible="true">
+        <dc:Bounds x="381" y="226" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="379" y="189" width="54" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0hj0xec_di" bpmnElement="Event_0hj0xec">
+        <dc:Bounds x="548" y="363" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="536" y="341" width="61" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_001b069_di" bpmnElement="Activity_001b069" bioc:stroke="#6b3c00" bioc:fill="#ffe0b2" color:background-color="#ffe0b2" color:border-color="#6b3c00">
+        <dc:Bounds x="356" y="341" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_1jcm9kt_di" bpmnElement="Activity_1jcm9kt">
+        <dc:Bounds x="516" y="211" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_0icc7ya_di" bpmnElement="Event_0icc7ya">
+        <dc:Bounds x="708" y="233" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="686" y="276" width="81" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_scope_di" bpmnElement="TextAnnotation_scope">
+        <dc:Bounds x="131" y="50" width="231" height="87" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_retry_di" bpmnElement="TextAnnotation_retry">
+        <dc:Bounds x="444" y="501" width="244" height="57" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_fulfill_di" bpmnElement="TextAnnotation_fulfill">
+        <dc:Bounds x="441" y="50" width="250" height="72" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_0r6hzjx_di" bpmnElement="Flow_0r6hzjx">
+        <di:waypoint x="104" y="251" />
+        <di:waypoint x="196" y="251" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0pg7szv_di" bpmnElement="Flow_0pg7szv">
+        <di:waypoint x="296" y="251" />
+        <di:waypoint x="381" y="251" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1p31hon_di" bpmnElement="Flow_1p31hon">
+        <di:waypoint x="406" y="276" />
+        <di:waypoint x="406" y="341" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="414" y="281" width="15" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1lqokom_di" bpmnElement="Flow_1lqokom">
+        <di:waypoint x="456" y="381" />
+        <di:waypoint x="548" y="381" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0m830hg_di" bpmnElement="Flow_0m830hg">
+        <di:waypoint x="566" y="399" />
+        <di:waypoint x="566" y="461" />
+        <di:waypoint x="246" y="461" />
+        <di:waypoint x="246" y="291" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1uugdk4_di" bpmnElement="Flow_1uugdk4">
+        <di:waypoint x="431" y="251" />
+        <di:waypoint x="516" y="251" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="439" y="231" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_14ybmli_di" bpmnElement="Flow_14ybmli">
+        <di:waypoint x="616" y="251" />
+        <di:waypoint x="708" y="251" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_scope_di" bpmnElement="Association_scope">
+        <di:waypoint x="246" y="211" />
+        <di:waypoint x="246" y="137" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_retry_di" bpmnElement="Association_retry">
+        <di:waypoint x="566" y="399" />
+        <di:waypoint x="566" y="501" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_fulfill_di" bpmnElement="Association_fulfill">
+        <di:waypoint x="566" y="211" />
+        <di:waypoint x="566" y="122" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
