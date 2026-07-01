@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_095xx1z" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.25.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.5.0">
+  <bpmn:process id="Process_14qfm31" isExecutable="true">
+    <bpmn:startEvent id="Event_12a2xii" name="Movement Collection created">
+      <bpmn:outgoing>Flow_start_to_getdata</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="Activity_GetCollectionData" name="Load collection data">
+      <bpmn:incoming>Flow_start_to_getdata</bpmn:incoming>
+      <bpmn:outgoing>Flow_getdata_to_assignee</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Activity_SetAssignee" name="Assign operator">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_getdata_to_assignee</bpmn:incoming>
+      <bpmn:outgoing>Flow_assignee_to_subprocess</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:subProcess id="SubProcess_PickItems" name="Pick each item in collection">
+      <bpmn:incoming>Flow_assignee_to_subprocess</bpmn:incoming>
+      <bpmn:outgoing>Flow_subprocess_to_end</bpmn:outgoing>
+      <bpmn:multiInstanceLoopCharacteristics isSequential="true" />
+      <bpmn:startEvent id="Event_InnerStart">
+        <bpmn:outgoing>Flow_inner_start_to_scantray</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="scan-picking-tray-id" name="Scan Picking Tray ID">
+        <bpmn:extensionElements>
+          <zeebe:userTask />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_inner_start_to_scantray</bpmn:incoming>
+        <bpmn:outgoing>Flow_scantray_to_scanproduct</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="scan-product-id" name="Scan Product ID QR-Code">
+        <bpmn:extensionElements>
+          <zeebe:userTask />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_scantray_to_scanproduct</bpmn:incoming>
+        <bpmn:outgoing>Flow_scanproduct_to_bestbefore</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="best-before-ok" name="Best before date ok?">
+        <bpmn:extensionElements>
+          <zeebe:userTask />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_scanproduct_to_bestbefore</bpmn:incoming>
+        <bpmn:incoming>Flow_info_to_bestbefore</bpmn:incoming>
+        <bpmn:outgoing>Flow_bestbefore_to_gateway</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_1rng1ve" name="Best before ok?">
+        <bpmn:incoming>Flow_bestbefore_to_gateway</bpmn:incoming>
+        <bpmn:outgoing>Flow_gateway_no</bpmn:outgoing>
+        <bpmn:outgoing>Flow_gateway_yes</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="info-expired" name="Info to User: You should not drink this">
+        <bpmn:extensionElements>
+          <zeebe:userTask />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_gateway_no</bpmn:incoming>
+        <bpmn:outgoing>Flow_info_to_bestbefore</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="confirm-pick" name="User Confirmation">
+        <bpmn:incoming>Flow_gateway_yes</bpmn:incoming>
+        <bpmn:outgoing>Flow_confirm_to_reduce</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="Activity_18ky25r" name="Reduce stock for this item">
+        <bpmn:incoming>Flow_confirm_to_reduce</bpmn:incoming>
+        <bpmn:outgoing>Flow_reduce_to_dispatch</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="Activity_DispatchFromOutbound" name="Dispatch from outbound">
+        <bpmn:incoming>Flow_reduce_to_dispatch</bpmn:incoming>
+        <bpmn:outgoing>Flow_dispatch_to_inner_end</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="Event_InnerEnd" name="Item picked">
+        <bpmn:incoming>Flow_dispatch_to_inner_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_inner_start_to_scantray" sourceRef="Event_InnerStart" targetRef="scan-picking-tray-id" />
+      <bpmn:sequenceFlow id="Flow_scantray_to_scanproduct" sourceRef="scan-picking-tray-id" targetRef="scan-product-id" />
+      <bpmn:sequenceFlow id="Flow_scanproduct_to_bestbefore" sourceRef="scan-product-id" targetRef="best-before-ok" />
+      <bpmn:sequenceFlow id="Flow_bestbefore_to_gateway" sourceRef="best-before-ok" targetRef="Gateway_1rng1ve" />
+      <bpmn:sequenceFlow id="Flow_gateway_no" name="no" sourceRef="Gateway_1rng1ve" targetRef="info-expired" />
+      <bpmn:sequenceFlow id="Flow_info_to_bestbefore" sourceRef="info-expired" targetRef="best-before-ok" />
+      <bpmn:sequenceFlow id="Flow_gateway_yes" name="yes" sourceRef="Gateway_1rng1ve" targetRef="confirm-pick" />
+      <bpmn:sequenceFlow id="Flow_confirm_to_reduce" sourceRef="confirm-pick" targetRef="Activity_18ky25r" />
+      <bpmn:sequenceFlow id="Flow_reduce_to_dispatch" sourceRef="Activity_18ky25r" targetRef="Activity_DispatchFromOutbound" />
+      <bpmn:sequenceFlow id="Flow_dispatch_to_inner_end" sourceRef="Activity_DispatchFromOutbound" targetRef="Event_InnerEnd" />
+    </bpmn:subProcess>
+    <bpmn:endEvent id="Event_14sxx1g" name="Picking complete">
+      <bpmn:incoming>Flow_subprocess_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_getdata" sourceRef="Event_12a2xii" targetRef="Activity_GetCollectionData" />
+    <bpmn:sequenceFlow id="Flow_getdata_to_assignee" sourceRef="Activity_GetCollectionData" targetRef="Activity_SetAssignee" />
+    <bpmn:sequenceFlow id="Flow_assignee_to_subprocess" sourceRef="Activity_SetAssignee" targetRef="SubProcess_PickItems" />
+    <bpmn:sequenceFlow id="Flow_subprocess_to_end" sourceRef="SubProcess_PickItems" targetRef="Event_14sxx1g" />
+    <bpmn:textAnnotation id="TextAnnotation_GetCollectionData">
+      <bpmn:text>ID: GetCollectionData</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_GetCollectionData" associationDirection="None" sourceRef="Activity_GetCollectionData" targetRef="TextAnnotation_GetCollectionData" />
+    <bpmn:textAnnotation id="TextAnnotation_SetAssignee">
+      <bpmn:text>ID: SetAssignee</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_SetAssignee" associationDirection="None" sourceRef="Activity_SetAssignee" targetRef="TextAnnotation_SetAssignee" />
+    <bpmn:textAnnotation id="TextAnnotation_ScanPickingTrayID">
+      <bpmn:text>ID: ScanPickingTrayID</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_ScanPickingTrayID" associationDirection="None" sourceRef="scan-picking-tray-id" targetRef="TextAnnotation_ScanPickingTrayID" />
+    <bpmn:textAnnotation id="TextAnnotation_ScanProductID">
+      <bpmn:text>ID: ScanProductID</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_ScanProductID" associationDirection="None" sourceRef="scan-product-id" targetRef="TextAnnotation_ScanProductID" />
+    <bpmn:textAnnotation id="TextAnnotation_BestBeforeOk">
+      <bpmn:text>ID: BestBeforeOk</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_BestBeforeOk" associationDirection="None" sourceRef="best-before-ok" targetRef="TextAnnotation_BestBeforeOk" />
+    <bpmn:textAnnotation id="TextAnnotation_InfoExpired">
+      <bpmn:text>ID: InfoExpired</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_InfoExpired" associationDirection="None" sourceRef="info-expired" targetRef="TextAnnotation_InfoExpired" />
+    <bpmn:textAnnotation id="TextAnnotation_ConfirmPick">
+      <bpmn:text>ID: ConfirmPick</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_ConfirmPick" associationDirection="None" sourceRef="confirm-pick" targetRef="TextAnnotation_ConfirmPick" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_14qfm31">
+      <bpmndi:BPMNShape id="Event_12a2xii_di" bpmnElement="Event_12a2xii">
+        <dc:Bounds x="60" y="213" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="256" width="56" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_GetCollectionData_di" bpmnElement="Activity_GetCollectionData">
+        <dc:Bounds x="188" y="191" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_SetAssignee_di" bpmnElement="Activity_SetAssignee">
+        <dc:Bounds x="348" y="191" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_PickItems_di" bpmnElement="SubProcess_PickItems" isExpanded="true">
+        <dc:Bounds x="659" y="50" width="1399" height="361" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_InnerStart_di" bpmnElement="Event_InnerStart">
+        <dc:Bounds x="694" y="151" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="scan-picking-tray-id_di" bpmnElement="scan-picking-tray-id">
+        <dc:Bounds x="822" y="129" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="scan-product-id_di" bpmnElement="scan-product-id">
+        <dc:Bounds x="982" y="129" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="best-before-ok_di" bpmnElement="best-before-ok">
+        <dc:Bounds x="1142" y="129" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1rng1ve_di" bpmnElement="Gateway_1rng1ve" isMarkerVisible="true">
+        <dc:Bounds x="1327" y="144" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1310" y="122" width="84" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="info-expired_di" bpmnElement="info-expired">
+        <dc:Bounds x="1302" y="278" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="confirm-pick_di" bpmnElement="confirm-pick">
+        <dc:Bounds x="1462" y="129" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_18ky25r_di" bpmnElement="Activity_18ky25r">
+        <dc:Bounds x="1622" y="129" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_DispatchFromOutbound_di" bpmnElement="Activity_DispatchFromOutbound">
+        <dc:Bounds x="1782" y="129" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_InnerEnd_di" bpmnElement="Event_InnerEnd">
+        <dc:Bounds x="1974" y="151" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1961" y="194" width="61" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_ScanPickingTrayID_di" bpmnElement="TextAnnotation_ScanPickingTrayID">
+        <dc:Bounds x="802" y="90" width="139" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_ScanProductID_di" bpmnElement="TextAnnotation_ScanProductID">
+        <dc:Bounds x="973" y="90" width="117" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_BestBeforeOk_di" bpmnElement="TextAnnotation_BestBeforeOk">
+        <dc:Bounds x="1136" y="90" width="111" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_InfoExpired_di" bpmnElement="TextAnnotation_InfoExpired">
+        <dc:Bounds x="1383" y="239" width="97" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_ConfirmPick_di" bpmnElement="TextAnnotation_ConfirmPick">
+        <dc:Bounds x="1461" y="90" width="101" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_14sxx1g_di" bpmnElement="Event_14sxx1g">
+        <dc:Bounds x="2140" y="213" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2134" y="256" width="49" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_GetCollectionData_di" bpmnElement="TextAnnotation_GetCollectionData">
+        <dc:Bounds x="171" y="152" width="134" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_SetAssignee_di" bpmnElement="TextAnnotation_SetAssignee">
+        <dc:Bounds x="346" y="152" width="104" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_to_getdata_di" bpmnElement="Flow_start_to_getdata">
+        <di:waypoint x="96" y="231" />
+        <di:waypoint x="188" y="231" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_getdata_to_assignee_di" bpmnElement="Flow_getdata_to_assignee">
+        <di:waypoint x="288" y="231" />
+        <di:waypoint x="348" y="231" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_assignee_to_subprocess_di" bpmnElement="Flow_assignee_to_subprocess">
+        <di:waypoint x="448" y="231" />
+        <di:waypoint x="659" y="231" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_subprocess_to_end_di" bpmnElement="Flow_subprocess_to_end">
+        <di:waypoint x="2057" y="231" />
+        <di:waypoint x="2140" y="231" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_GetCollectionData_di" bpmnElement="Association_GetCollectionData">
+        <di:waypoint x="238" y="191" />
+        <di:waypoint x="238" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_SetAssignee_di" bpmnElement="Association_SetAssignee">
+        <di:waypoint x="398" y="191" />
+        <di:waypoint x="398" y="177" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_inner_start_to_scantray_di" bpmnElement="Flow_inner_start_to_scantray">
+        <di:waypoint x="730" y="169" />
+        <di:waypoint x="822" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_scantray_to_scanproduct_di" bpmnElement="Flow_scantray_to_scanproduct">
+        <di:waypoint x="922" y="169" />
+        <di:waypoint x="982" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_scanproduct_to_bestbefore_di" bpmnElement="Flow_scanproduct_to_bestbefore">
+        <di:waypoint x="1082" y="169" />
+        <di:waypoint x="1142" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_bestbefore_to_gateway_di" bpmnElement="Flow_bestbefore_to_gateway">
+        <di:waypoint x="1242" y="169" />
+        <di:waypoint x="1327" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_gateway_no_di" bpmnElement="Flow_gateway_no">
+        <di:waypoint x="1352" y="194" />
+        <di:waypoint x="1352" y="278" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1360" y="199" width="13" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_info_to_bestbefore_di" bpmnElement="Flow_info_to_bestbefore">
+        <di:waypoint x="1352" y="358" />
+        <di:waypoint x="1352" y="376" />
+        <di:waypoint x="1192" y="376" />
+        <di:waypoint x="1192" y="209" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_gateway_yes_di" bpmnElement="Flow_gateway_yes">
+        <di:waypoint x="1377" y="169" />
+        <di:waypoint x="1462" y="169" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1385" y="149" width="19" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_confirm_to_reduce_di" bpmnElement="Flow_confirm_to_reduce">
+        <di:waypoint x="1562" y="169" />
+        <di:waypoint x="1622" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_reduce_to_dispatch_di" bpmnElement="Flow_reduce_to_dispatch">
+        <di:waypoint x="1722" y="169" />
+        <di:waypoint x="1782" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_dispatch_to_inner_end_di" bpmnElement="Flow_dispatch_to_inner_end">
+        <di:waypoint x="1882" y="169" />
+        <di:waypoint x="1974" y="169" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_ScanPickingTrayID_di" bpmnElement="Association_ScanPickingTrayID">
+        <di:waypoint x="872" y="129" />
+        <di:waypoint x="872" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_ScanProductID_di" bpmnElement="Association_ScanProductID">
+        <di:waypoint x="1032" y="129" />
+        <di:waypoint x="1032" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_BestBeforeOk_di" bpmnElement="Association_BestBeforeOk">
+        <di:waypoint x="1192" y="129" />
+        <di:waypoint x="1192" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_InfoExpired_di" bpmnElement="Association_InfoExpired">
+        <di:waypoint x="1400" y="278" />
+        <di:waypoint x="1417" y="264" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_ConfirmPick_di" bpmnElement="Association_ConfirmPick">
+        <di:waypoint x="1512" y="129" />
+        <di:waypoint x="1512" y="115" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

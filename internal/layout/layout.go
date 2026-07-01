@@ -32,6 +32,9 @@ const (
 	ProseGap         = 24.0  // gap below the prose-annotation zone
 	ComponentGap     = 110.0
 	ChainPad         = 20.0 // routing margin added to chain extents
+	SubProcPadX      = 35.0 // horizontal padding between a sub-process border and its interior
+	SubProcHeaderH   = 40.0 // room above the interior for the sub-process title
+	SubProcPadBottom = 35.0 // padding below the interior (also leaves room for MI markers)
 	LabelGap         = 7.0  // node label offset
 	ShortAnnWrap     = 150.0
 	ProseAnnWrap     = 240.0
@@ -42,6 +45,9 @@ const (
 
 // Point is a waypoint.
 type Point struct{ X, Y float64 }
+
+// Size is a shape's width and height.
+type Size struct{ W, H float64 }
 
 // Rect is an axis-aligned box.
 type Rect struct{ X, Y, W, H float64 }
@@ -77,9 +83,35 @@ func Compute(p *model.Process, g *graph.Graph) (*Result, error) {
 		EdgeLabels: map[string]Rect{},
 		Edges:      map[string][]Point{},
 	}
+
+	// Expanded sub-processes are laid out first (in their own coordinate
+	// space); their bounding box drives the container node's size in this
+	// scope. The interior is shifted into the container after the parent
+	// layout has positioned it.
+	subRes := map[string]*Result{}
+	subSize := map[string]Size{}
+	subMin := map[string]Point{}
+	for _, n := range p.Nodes {
+		if n.Sub == nil {
+			continue
+		}
+		sg := graph.Build(n.Sub)
+		r, err := Compute(n.Sub, sg)
+		if err != nil {
+			return nil, fmt.Errorf("sub-process %s: %w", n.ID, err)
+		}
+		minX, minY, maxX, maxY := bounds(r)
+		subRes[n.ID] = r
+		subMin[n.ID] = Point{minX, minY}
+		subSize[n.ID] = Size{
+			W: (maxX - minX) + 2*SubProcPadX,
+			H: (maxY - minY) + SubProcHeaderH + SubProcPadBottom,
+		}
+	}
+
 	yOff := Margin
 	for ci, comp := range g.Components {
-		cl, err := layoutComponent(p, g, comp)
+		cl, err := layoutComponent(p, g, comp, subSize)
 		if err != nil {
 			return nil, fmt.Errorf("component %d: %w", ci, err)
 		}
@@ -98,7 +130,39 @@ func Compute(p *model.Process, g *graph.Graph) (*Result, error) {
 		merge(res, cl, dx, dy)
 		yOff += maxY - minY + ComponentGap
 	}
+
+	// Drop each expanded sub-process interior into its container rectangle.
+	for id, r := range subRes {
+		cont, ok := res.Shapes[id]
+		if !ok {
+			continue
+		}
+		dx := cont.X + SubProcPadX - subMin[id].X
+		dy := cont.Y + SubProcHeaderH - subMin[id].Y
+		merge(res, r, dx, dy)
+	}
 	return res, nil
+}
+
+// bounds returns the axis-aligned bounding box of everything in a result.
+func bounds(r *Result) (minX, minY, maxX, maxY float64) {
+	minX, minY = math.Inf(1), math.Inf(1)
+	maxX, maxY = math.Inf(-1), math.Inf(-1)
+	each(r, func(rc Rect) {
+		minX = math.Min(minX, rc.X)
+		minY = math.Min(minY, rc.Y)
+		maxX = math.Max(maxX, rc.Right())
+		maxY = math.Max(maxY, rc.Bottom())
+	}, func(pt Point) {
+		minX = math.Min(minX, pt.X)
+		minY = math.Min(minY, pt.Y)
+		maxX = math.Max(maxX, pt.X)
+		maxY = math.Max(maxY, pt.Y)
+	})
+	if math.IsInf(minX, 1) {
+		return 0, 0, 0, 0
+	}
+	return minX, minY, maxX, maxY
 }
 
 func each(r *Result, fr func(Rect), fp func(Point)) {

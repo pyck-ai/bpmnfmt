@@ -25,6 +25,7 @@ const (
 	KindIntermediateThrowEvent
 	KindTask // any *task variant: service, user, script, send, receive, manual, business rule, plain
 	KindExclusiveGateway
+	KindSubProcess // expanded embedded sub-process (a container with its own Sub scope)
 )
 
 // IsEvent reports whether the kind is rendered as a 36x36 circle.
@@ -49,6 +50,13 @@ type FlowNode struct {
 	Outgoing []string // sequence flow IDs in declared order
 	EventDef string   // "timer", "signal", "message", ... or ""
 	DocIndex int
+
+	// Sub is the interior scope of an expanded embedded sub-process
+	// (Kind == KindSubProcess); nil for every other node. Its Nodes and
+	// Flows are laid out inside this node's rectangle. Depth is limited to
+	// one level: a sub-process nested inside Sub is recorded in
+	// Sub.Unsupported and rejected with E7.
+	Sub *Process
 }
 
 // SequenceFlow is a directed edge of the process graph.
@@ -115,6 +123,11 @@ type DIInfo struct {
 	Refs        []string // bpmnElement references in document order
 	RefSet      map[string]bool
 	ShapeColors map[string][]Attr // bpmnElement -> bioc/color attrs
+	// Expanded records the isExpanded attribute of a BPMNShape by
+	// bpmnElement id. Only present when the attribute was set on the shape;
+	// used to tell an expanded sub-process (lay out its interior) from a
+	// collapsed one (rejected with E7).
+	Expanded map[string]bool
 }
 
 // Span is a half-open byte range [Start, End) in the raw file.

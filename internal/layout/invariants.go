@@ -20,27 +20,62 @@ import (
 func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 	var out []string
 
-	// Shape-shape overlaps.
+	scopes := scopeList(p)
+	// An expanded sub-process legitimately contains its interior shapes and
+	// interior edges: record container ids and, per element, its container so
+	// those overlaps/crossings are not flagged.
+	containers := map[string]bool{}
+	ownerOf := map[string]string{}
+	for _, n := range p.Nodes {
+		if n.Sub == nil {
+			continue
+		}
+		containers[n.ID] = true
+		for _, in := range n.Sub.Nodes {
+			ownerOf[in.ID] = n.ID
+		}
+		for _, fl := range n.Sub.Flows {
+			ownerOf[fl.ID] = n.ID
+		}
+		for _, a := range n.Sub.Annotations {
+			ownerOf[a.ID] = n.ID
+		}
+		for _, as := range n.Sub.Associations {
+			ownerOf[as.ID] = n.ID
+		}
+	}
+	nested := func(a, b string) bool {
+		return (containers[a] && ownerOf[b] == a) || (containers[b] && ownerOf[a] == b)
+	}
+
+	// Shape-shape overlaps (a container may contain its own children).
 	ids := sortedKeys(res.Shapes)
 	for i, a := range ids {
 		for _, b := range ids[i+1:] {
+			if nested(a, b) {
+				continue
+			}
 			if res.Shapes[a].Overlaps(res.Shapes[b]) {
 				out = append(out, fmt.Sprintf("shapes overlap: %s and %s", a, b))
 			}
 		}
 	}
 
-	// Label-shape overlaps.
+	// Label-shape overlaps (skip the label's own container).
 	for _, lid := range sortedKeys(res.Labels) {
 		l := res.Labels[lid]
 		for _, sid := range ids {
-			if sid != lid && l.Overlaps(res.Shapes[sid].Grow(-1)) {
+			if sid == lid || ownerOf[lid] == sid {
+				continue
+			}
+			if l.Overlaps(res.Shapes[sid].Grow(-1)) {
 				out = append(out, fmt.Sprintf("label of %s overlaps shape %s", lid, sid))
 			}
 		}
 	}
 
-	// Edge segments through foreign shapes.
+	// Edge segments through foreign shapes (an interior edge may lie inside
+	// its own container).
 	edgeIDs := make([]string, 0, len(res.Edges))
 	for k := range res.Edges {
 		edgeIDs = append(edgeIDs, k)
@@ -48,10 +83,11 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 	sort.Strings(edgeIDs)
 	for _, eid := range edgeIDs {
 		pts := res.Edges[eid]
-		skip := edgeEndpoints(p, eid)
+		skip := edgeEndpoints(scopes, eid)
+		owner := ownerOf[eid]
 		for i := 0; i+1 < len(pts); i++ {
 			for _, sid := range ids {
-				if skip[sid] {
+				if skip[sid] || sid == owner {
 					continue
 				}
 				if segIntersectsRect(pts[i], pts[i+1], res.Shapes[sid].Grow(-2)) {
@@ -61,7 +97,22 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 		}
 	}
 
-	// Forward flows move rightwards.
+	// Forward-flow direction and spine straightness, per scope.
+	checkFlowGeometry(p, g, res, &out)
+	for _, n := range p.Nodes {
+		if n.Sub != nil {
+			checkFlowGeometry(n.Sub, graph.Build(n.Sub), res, &out)
+		}
+	}
+
+	sort.Strings(out)
+	return out
+}
+
+// checkFlowGeometry validates that forward sequence flows never move leftwards
+// and that the spine of every component sits on one ascending centerline,
+// within a single scope (a process or a sub-process interior).
+func checkFlowGeometry(p *model.Process, g *graph.Graph, res *Result, out *[]string) {
 	for _, fl := range p.Flows {
 		if g.Back[fl.ID] {
 			continue
@@ -69,11 +120,9 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 		src, okS := res.Shapes[fl.SourceRef]
 		dst, okD := res.Shapes[fl.TargetRef]
 		if okS && okD && dst.CX() < src.CX()-0.5 {
-			out = append(out, fmt.Sprintf("forward flow %s moves leftwards (%.0f -> %.0f)", fl.ID, src.CX(), dst.CX()))
+			*out = append(*out, fmt.Sprintf("forward flow %s moves leftwards (%.0f -> %.0f)", fl.ID, src.CX(), dst.CX()))
 		}
 	}
-
-	// Spine straightness.
 	for ci, comp := range g.Components {
 		lastX := math.Inf(-1)
 		cy := math.NaN()
@@ -85,17 +134,25 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 			if math.IsNaN(cy) {
 				cy = sh.CY()
 			} else if math.Abs(sh.CY()-cy) > 0.5 {
-				out = append(out, fmt.Sprintf("component %d: spine node %s off the spine row", ci, id))
+				*out = append(*out, fmt.Sprintf("component %d: spine node %s off the spine row", ci, id))
 			}
 			if sh.CX() <= lastX {
-				out = append(out, fmt.Sprintf("component %d: spine node %s not right of its predecessor", ci, id))
+				*out = append(*out, fmt.Sprintf("component %d: spine node %s not right of its predecessor", ci, id))
 			}
 			lastX = sh.CX()
 		}
 	}
+}
 
-	sort.Strings(out)
-	return out
+// scopeList returns the process and every expanded sub-process interior.
+func scopeList(p *model.Process) []*model.Process {
+	scopes := []*model.Process{p}
+	for _, n := range p.Nodes {
+		if n.Sub != nil {
+			scopes = append(scopes, n.Sub)
+		}
+	}
+	return scopes
 }
 
 // CountCrossings counts transversal crossings between sequence flow segments
@@ -107,10 +164,12 @@ func CountCrossings(p *model.Process, res *Result) int {
 		edge string
 	}
 	var segs []seg
-	for _, fl := range p.Flows {
-		pts := res.Edges[fl.ID]
-		for i := 0; i+1 < len(pts); i++ {
-			segs = append(segs, seg{pts[i], pts[i+1], fl.ID})
+	for _, sc := range scopeList(p) {
+		for _, fl := range sc.Flows {
+			pts := res.Edges[fl.ID]
+			for i := 0; i+1 < len(pts); i++ {
+				segs = append(segs, seg{pts[i], pts[i+1], fl.ID})
+			}
 		}
 	}
 	count := 0
@@ -144,23 +203,34 @@ func properCrossing(a1, a2, b1, b2 Point) bool {
 	return v1.X > xlo+e && v1.X < xhi-e && h1.Y > ylo+e && h1.Y < yhi-e
 }
 
-func edgeEndpoints(p *model.Process, edgeID string) map[string]bool {
+func edgeEndpoints(scopes []*model.Process, edgeID string) map[string]bool {
 	skip := map[string]bool{}
-	if fl := p.FlowByID[edgeID]; fl != nil {
+	flowByID := func(id string) *model.SequenceFlow {
+		for _, sc := range scopes {
+			if fl := sc.FlowByID[id]; fl != nil {
+				return fl
+			}
+		}
+		return nil
+	}
+	if fl := flowByID(edgeID); fl != nil {
 		skip[fl.SourceRef] = true
 		skip[fl.TargetRef] = true
 		return skip
 	}
-	for _, as := range p.Associations {
-		if as.ID == edgeID {
+	for _, sc := range scopes {
+		for _, as := range sc.Associations {
+			if as.ID != edgeID {
+				continue
+			}
 			skip[as.SourceRef] = true
 			skip[as.TargetRef] = true
 			// Flow-anchored associations start at the flow midpoint.
-			if fl := p.FlowByID[as.SourceRef]; fl != nil {
+			if fl := flowByID(as.SourceRef); fl != nil {
 				skip[fl.SourceRef] = true
 				skip[fl.TargetRef] = true
 			}
-			if fl := p.FlowByID[as.TargetRef]; fl != nil {
+			if fl := flowByID(as.TargetRef); fl != nil {
 				skip[fl.SourceRef] = true
 				skip[fl.TargetRef] = true
 			}

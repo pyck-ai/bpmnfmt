@@ -27,8 +27,10 @@ var kindByTag = map[string]NodeKind{
 }
 
 // unsupportedTags are BPMN constructs the layouter refuses (lint rule E7).
+// subProcess is intentionally absent: an expanded embedded sub-process is
+// laid out (see rSubProcess); a collapsed one is demoted to Unsupported in
+// finalizeSubProcesses.
 var unsupportedTags = map[string]bool{
-	"subProcess":          true,
 	"adHocSubProcess":     true,
 	"transaction":         true,
 	"callActivity":        true,
@@ -57,6 +59,7 @@ const (
 	rDefinitions
 	rProcess
 	rNode
+	rSubProcess
 	rFlow
 	rAnnotation
 	rIncoming
@@ -91,14 +94,16 @@ func Parse(raw []byte, path string) (*File, error) {
 
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	var (
-		stack    []frame
-		curProc  *Process
-		curNode  *FlowNode
-		curAnn   *TextAnnotation
-		text     strings.Builder // accumulates chardata for incoming/outgoing/text/documentation
-		docIdx   int
-		diStart  int64 = -1
-		seenDefs bool
+		stack        []frame
+		curProc      *Process
+		curNode      *FlowNode
+		curAnn       *TextAnnotation
+		curSub       *Process        // interior scope while inside an expanded sub-process
+		curContainer *FlowNode       // the sub-process node owning curSub
+		text         strings.Builder // accumulates chardata for incoming/outgoing/text/documentation
+		docIdx       int
+		diStart      int64 = -1
+		seenDefs     bool
 	)
 
 	push := func(n xml.Name, r role) { stack = append(stack, frame{n, r}) }
@@ -152,7 +157,7 @@ func Parse(raw []byte, path string) (*File, error) {
 			case top() == rDefinitions && t.Name.Space == NSBPMNDI && t.Name.Local == "BPMNDiagram":
 				diStart = prev
 				if f.DI == nil {
-					f.DI = &DIInfo{RefSet: map[string]bool{}, ShapeColors: map[string][]Attr{}}
+					f.DI = &DIInfo{RefSet: map[string]bool{}, ShapeColors: map[string][]Attr{}, Expanded: map[string]bool{}}
 				}
 				push(t.Name, rDiagram)
 
@@ -212,6 +217,32 @@ func Parse(raw []byte, path string) (*File, error) {
 				case t.Name.Local == "documentation":
 					text.Reset()
 					push(t.Name, rDocumentation)
+				case t.Name.Local == "subProcess":
+					// Expanded/collapsed is decided in finalizeSubProcesses
+					// once the DI section has been read. Parse the interior
+					// unconditionally into a Sub scope; the container node also
+					// carries its own incoming/outgoing (curNode == container
+					// until the first inner node is opened).
+					curContainer = &FlowNode{
+						Kind:     KindSubProcess,
+						Tag:      t.Name.Local,
+						ID:       attr(t, "id"),
+						Name:     attr(t, "name"),
+						DocIndex: docIdx,
+					}
+					docIdx++
+					curProc.Nodes = append(curProc.Nodes, curContainer)
+					if curContainer.ID != "" {
+						curProc.NodeByID[curContainer.ID] = curContainer
+					}
+					curSub = &Process{
+						NodeByID: map[string]*FlowNode{},
+						FlowByID: map[string]*SequenceFlow{},
+						AnnByID:  map[string]*TextAnnotation{},
+					}
+					curContainer.Sub = curSub
+					curNode = curContainer
+					push(t.Name, rSubProcess)
 				case unsupportedTags[t.Name.Local]:
 					curProc.Unsupported = append(curProc.Unsupported, Unsupported{Tag: t.Name.Local, ID: attr(t, "id")})
 					push(t.Name, rOther)
@@ -235,6 +266,70 @@ func Parse(raw []byte, path string) (*File, error) {
 					push(t.Name, rOther)
 				}
 
+			case top() == rSubProcess && t.Name.Space == NSBPMN:
+				f.recordID(t)
+				switch {
+				case t.Name.Local == "incoming":
+					// Belongs to the container node (curNode == curContainer).
+					text.Reset()
+					push(t.Name, rIncoming)
+				case t.Name.Local == "outgoing":
+					text.Reset()
+					push(t.Name, rOutgoing)
+				case kindByTag[t.Name.Local] != KindUnknown:
+					curNode = &FlowNode{
+						Kind:     kindByTag[t.Name.Local],
+						Tag:      t.Name.Local,
+						ID:       attr(t, "id"),
+						Name:     attr(t, "name"),
+						DocIndex: docIdx,
+					}
+					docIdx++
+					curSub.Nodes = append(curSub.Nodes, curNode)
+					if curNode.ID != "" {
+						curSub.NodeByID[curNode.ID] = curNode
+					}
+					push(t.Name, rNode)
+				case t.Name.Local == "sequenceFlow":
+					fl := &SequenceFlow{
+						ID:        attr(t, "id"),
+						Name:      attr(t, "name"),
+						SourceRef: attr(t, "sourceRef"),
+						TargetRef: attr(t, "targetRef"),
+						DocIndex:  docIdx,
+					}
+					docIdx++
+					curSub.Flows = append(curSub.Flows, fl)
+					if fl.ID != "" {
+						curSub.FlowByID[fl.ID] = fl
+					}
+					push(t.Name, rFlow)
+				case t.Name.Local == "textAnnotation":
+					curAnn = &TextAnnotation{ID: attr(t, "id"), DocIndex: docIdx}
+					docIdx++
+					curSub.Annotations = append(curSub.Annotations, curAnn)
+					if curAnn.ID != "" {
+						curSub.AnnByID[curAnn.ID] = curAnn
+					}
+					push(t.Name, rAnnotation)
+				case t.Name.Local == "association":
+					curSub.Associations = append(curSub.Associations, &Association{
+						ID:        attr(t, "id"),
+						SourceRef: attr(t, "sourceRef"),
+						TargetRef: attr(t, "targetRef"),
+						DocIndex:  docIdx,
+					})
+					docIdx++
+					push(t.Name, rOther)
+				case unsupportedTags[t.Name.Local] || t.Name.Local == "subProcess":
+					// A nested sub-process (depth 2) is not laid out; recording
+					// it here makes lint reject the whole file with E7.
+					curSub.Unsupported = append(curSub.Unsupported, Unsupported{Tag: t.Name.Local, ID: attr(t, "id")})
+					push(t.Name, rOther)
+				default:
+					push(t.Name, rOther)
+				}
+
 			case top() == rAnnotation && t.Name.Space == NSBPMN && t.Name.Local == "text":
 				text.Reset()
 				push(t.Name, rText)
@@ -253,6 +348,9 @@ func Parse(raw []byte, path string) (*File, error) {
 									Space: a.Name.Space, Local: a.Name.Local, Value: a.Value,
 								})
 							}
+						}
+						if v := attr(t, "isExpanded"); v != "" && ref != "" {
+							f.DI.Expanded[ref] = v == "true"
 						}
 					}
 				}
@@ -290,6 +388,15 @@ func Parse(raw []byte, path string) (*File, error) {
 				}
 			case rNode:
 				curNode = nil
+				if curContainer != nil {
+					// Back inside a sub-process: further container-level
+					// incoming/outgoing (rare) target the container again.
+					curNode = curContainer
+				}
+			case rSubProcess:
+				curSub = nil
+				curContainer = nil
+				curNode = nil
 			case rAnnotation:
 				curAnn = nil
 			case rProcess:
@@ -306,7 +413,100 @@ func Parse(raw []byte, path string) (*File, error) {
 	if !seenDefs {
 		return nil, fmt.Errorf("%s: no bpmn:definitions root element found", path)
 	}
+	f.finalizeSubProcesses()
 	return f, nil
+}
+
+// finalizeSubProcesses decides, now that the DI section has been read,
+// whether each parsed sub-process is expanded (laid out) or collapsed
+// (rejected with E7), and moves process-level annotations that point into an
+// expanded sub-process down into its interior scope so they are laid out and
+// emitted inside the container.
+func (f *File) finalizeSubProcesses() {
+	for _, p := range f.Processes {
+		for _, n := range p.Nodes {
+			if n.Kind != KindSubProcess || n.Sub == nil {
+				continue
+			}
+			if f.expandedSubProcess(n) {
+				relocateInteriorAnnotations(p, n)
+				continue
+			}
+			// Collapsed (or DI marks it collapsed): not laid out. Record it
+			// as unsupported so lint reports E7 and formatting is blocked.
+			p.Unsupported = append(p.Unsupported, Unsupported{Tag: n.Tag, ID: n.ID})
+			n.Sub = nil
+		}
+	}
+}
+
+// expandedSubProcess reports whether the sub-process node should be laid out
+// as an expanded container. An explicit isExpanded on the DI shape wins; a
+// shape without the attribute is treated as collapsed; with no diagram at all
+// a sub-process that has interior flow nodes is laid out expanded.
+func (f *File) expandedSubProcess(n *FlowNode) bool {
+	hasInner := len(n.Sub.Nodes) > 0
+	if f.DI != nil {
+		if v, ok := f.DI.Expanded[n.ID]; ok {
+			return v
+		}
+		if f.DI.RefSet[n.ID] {
+			return false // shape exists but no isExpanded => collapsed
+		}
+	}
+	return hasInner
+}
+
+// relocateInteriorAnnotations moves a process-level textAnnotation (and its
+// association) into the sub-process interior when the association's other end
+// is an element that lives inside that sub-process.
+func relocateInteriorAnnotations(p *Process, n *FlowNode) {
+	sub := n.Sub
+	inner := map[string]bool{}
+	for _, in := range sub.Nodes {
+		inner[in.ID] = true
+	}
+	for _, fl := range sub.Flows {
+		inner[fl.ID] = true
+	}
+
+	moveAnn := map[string]bool{}    // annotation IDs to move
+	keptAssoc := p.Associations[:0] // rebuilt in place
+	var movedAssoc []*Association
+	for _, as := range p.Associations {
+		annID, other := "", ""
+		switch {
+		case p.AnnByID[as.SourceRef] != nil:
+			annID, other = as.SourceRef, as.TargetRef
+		case p.AnnByID[as.TargetRef] != nil:
+			annID, other = as.TargetRef, as.SourceRef
+		}
+		if annID != "" && inner[other] {
+			moveAnn[annID] = true
+			movedAssoc = append(movedAssoc, as)
+			continue
+		}
+		keptAssoc = append(keptAssoc, as)
+	}
+	if len(movedAssoc) == 0 {
+		return
+	}
+	p.Associations = keptAssoc
+
+	keptAnn := p.Annotations[:0]
+	for _, ann := range p.Annotations {
+		if moveAnn[ann.ID] {
+			sub.Annotations = append(sub.Annotations, ann)
+			if ann.ID != "" {
+				sub.AnnByID[ann.ID] = ann
+			}
+			delete(p.AnnByID, ann.ID)
+			continue
+		}
+		keptAnn = append(keptAnn, ann)
+	}
+	p.Annotations = keptAnn
+	sub.Associations = append(sub.Associations, movedAssoc...)
 }
 
 func (f *File) recordID(t xml.StartElement) {

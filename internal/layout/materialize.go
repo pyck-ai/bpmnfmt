@@ -116,6 +116,20 @@ func (cl *compLayout) materializeY() {
 	cl.rowCY = make([]float64, nRows)
 	cl.gapTop = make([]float64, nRows+1)
 
+	// Row height is the tallest shape on the row (>= RowH). Rows made of
+	// ordinary events/gateways/tasks are exactly RowH; an expanded
+	// sub-process container makes its row taller and pushes lower rows down.
+	rowH := make([]float64, nRows)
+	for r := 0; r < nRows; r++ {
+		h := RowH
+		for _, id := range cl.rows[r] {
+			if hh := cl.height(id); hh > h {
+				h = hh
+			}
+		}
+		rowH[r] = h
+	}
+
 	y := cl.proseH
 	for r := 0; r < nRows; r++ {
 		labelAbove := 0.0
@@ -128,8 +142,8 @@ func (cl *compLayout) materializeY() {
 			top = y + MinGapH
 		}
 		cl.gapTop[r] = top - 4 - cl.annBandH[r] - zone
-		cl.rowCY[r] = top + RowH/2
-		y = top + RowH
+		cl.rowCY[r] = top + rowH[r]/2
+		y = top + rowH[r]
 	}
 	last := 0.0
 	if nRows > 0 {
@@ -138,7 +152,7 @@ func (cl *compLayout) materializeY() {
 	cl.gapTop[nRows] = y + last + 4
 
 	for _, n := range cl.c.Nodes {
-		w, h := nodeSize(n)
+		w, h := cl.sizeOf(n.ID)
 		cl.res.Shapes[n.ID] = Rect{
 			X: cl.x[n.ID] - w/2,
 			Y: cl.rowCY[cl.rowOf[n.ID]] - h/2,

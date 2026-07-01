@@ -61,15 +61,9 @@ func Check(f *model.File) []Finding {
 	c := &checker{f: f}
 
 	c.fileRules()
+	c.duplicateIDs()
 	for _, p := range f.Processes {
-		g := graph.Build(p)
-		c.refRules(p)
-		c.duplicateIDs()
-		c.nodeRules(p, g)
-		c.gatewayRules(p, g)
-		c.reachabilityRules(p, g)
-		c.componentRules(p, g)
-		c.diRules(p)
+		c.checkScope(p, true)
 	}
 
 	sort.SliceStable(c.out, func(i, j int) bool {
@@ -79,6 +73,30 @@ func Check(f *model.File) []Finding {
 		return c.out[i].Rule < c.out[j].Rule
 	})
 	return c.out
+}
+
+// checkScope runs the per-process structural rules against one scope: a
+// top-level process (top == true) or the interior of an expanded
+// sub-process. Interior scopes are checked recursively so that malformed
+// nesting is reported with the same rules as the top level.
+func (c *checker) checkScope(p *model.Process, top bool) {
+	g := graph.Build(p)
+	c.refRules(p)
+	c.nodeRules(p, g)
+	c.gatewayRules(p, g)
+	c.reachabilityRules(p, g)
+	c.componentRules(p, g)
+	if top {
+		c.diRules(p)
+	}
+	for _, u := range p.Unsupported {
+		c.add("E7", SevError, u.ID, -1, "unsupported construct <%s>: not laid out by bpmnfmt", u.Tag)
+	}
+	for _, n := range p.Nodes {
+		if n.Sub != nil {
+			c.checkScope(n.Sub, false)
+		}
+	}
 }
 
 // MaxSeverity returns the highest severity present (SevInfo when empty is
@@ -396,8 +414,19 @@ func (c *checker) diRules(p *model.Process) {
 		check(a.ID, a.DocIndex, "association")
 	}
 	known := func(id string) bool {
-		return p.NodeByID[id] != nil || p.FlowByID[id] != nil || p.AnnByID[id] != nil ||
-			id == p.ID || c.assocByID(p, id)
+		if p.NodeByID[id] != nil || p.FlowByID[id] != nil || p.AnnByID[id] != nil ||
+			id == p.ID || c.assocByID(p, id) {
+			return true
+		}
+		// Elements of an expanded sub-process live in the same diagram plane.
+		for _, n := range p.Nodes {
+			if s := n.Sub; s != nil {
+				if s.NodeByID[id] != nil || s.FlowByID[id] != nil || s.AnnByID[id] != nil || c.assocByID(s, id) {
+					return true
+				}
+			}
+		}
+		return false
 	}
 	for _, ref := range di.Refs {
 		if !known(ref) {
