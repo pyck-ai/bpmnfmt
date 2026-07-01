@@ -35,28 +35,41 @@ func Emit(f *model.File, p *model.Process, res *layout.Result) ([]byte, error) {
 		w("      </%s>\n", pre.di("BPMNShape"))
 	}
 
-	for _, n := range p.Nodes {
-		r, ok := res.Shapes[n.ID]
-		if !ok {
-			continue
+	// Shapes. An expanded sub-process is emitted with isExpanded="true"
+	// immediately followed by the shapes of its interior scope (BPMN keeps
+	// nested shapes in the same plane, with absolute coordinates).
+	var emitShapes func(pr *model.Process)
+	emitShapes = func(pr *model.Process) {
+		for _, n := range pr.Nodes {
+			r, ok := res.Shapes[n.ID]
+			if !ok {
+				continue
+			}
+			extra := colorAttrs(f, pre, n.ID)
+			if n.Kind.IsGateway() {
+				extra += ` isMarkerVisible="true"`
+			}
+			if n.Sub != nil {
+				extra += ` isExpanded="true"`
+			}
+			var label *layout.Rect
+			if l, ok := res.Labels[n.ID]; ok {
+				label = &l
+			}
+			shape(n.ID, extra, r, label)
+			if n.Sub != nil {
+				emitShapes(n.Sub)
+			}
 		}
-		extra := colorAttrs(f, pre, n.ID)
-		if n.Kind.IsGateway() {
-			extra += ` isMarkerVisible="true"`
+		for _, a := range pr.Annotations {
+			r, ok := res.Shapes[a.ID]
+			if !ok {
+				continue
+			}
+			shape(a.ID, colorAttrs(f, pre, a.ID), r, nil)
 		}
-		var label *layout.Rect
-		if l, ok := res.Labels[n.ID]; ok {
-			label = &l
-		}
-		shape(n.ID, extra, r, label)
 	}
-	for _, a := range p.Annotations {
-		r, ok := res.Shapes[a.ID]
-		if !ok {
-			continue
-		}
-		shape(a.ID, colorAttrs(f, pre, a.ID), r, nil)
-	}
+	emitShapes(p)
 
 	edge := func(id string, pts []layout.Point, label *layout.Rect) {
 		w("      <%s id=\"%s_di\" bpmnElement=\"%s\">\n", pre.di("BPMNEdge"), esc(id), esc(id))
@@ -71,22 +84,31 @@ func Emit(f *model.File, p *model.Process, res *layout.Result) ([]byte, error) {
 		w("      </%s>\n", pre.di("BPMNEdge"))
 	}
 
-	for _, fl := range p.Flows {
-		pts, ok := res.Edges[fl.ID]
-		if !ok {
-			continue
+	var emitEdges func(pr *model.Process)
+	emitEdges = func(pr *model.Process) {
+		for _, fl := range pr.Flows {
+			pts, ok := res.Edges[fl.ID]
+			if !ok {
+				continue
+			}
+			var label *layout.Rect
+			if l, ok := res.EdgeLabels[fl.ID]; ok {
+				label = &l
+			}
+			edge(fl.ID, pts, label)
 		}
-		var label *layout.Rect
-		if l, ok := res.EdgeLabels[fl.ID]; ok {
-			label = &l
+		for _, a := range pr.Associations {
+			if pts, ok := res.Edges[a.ID]; ok {
+				edge(a.ID, pts, nil)
+			}
 		}
-		edge(fl.ID, pts, label)
+		for _, n := range pr.Nodes {
+			if n.Sub != nil {
+				emitEdges(n.Sub)
+			}
+		}
 	}
-	for _, a := range p.Associations {
-		if pts, ok := res.Edges[a.ID]; ok {
-			edge(a.ID, pts, nil)
-		}
-	}
+	emitEdges(p)
 
 	w("    </%s>\n", pre.di("BPMNPlane"))
 	w("  </%s>", pre.di("BPMNDiagram"))

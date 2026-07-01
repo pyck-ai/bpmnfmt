@@ -66,24 +66,40 @@ func BuildOpts(p *model.Process, opts Options) *Graph {
 
 func (g *Graph) buildAdjacency() {
 	p := g.Proc
+	// known reports whether both endpoints of fl point at nodes the model
+	// registered. Flows that reference unsupported elements (e.g. a
+	// parallelGateway, which the parser puts in Process.Unsupported but
+	// not in NodeByID) are skipped: keeping them would let the spine walk
+	// step to a node that does not exist and panic. Lint reports the
+	// unsupported element separately (E7).
+	known := func(fl *model.SequenceFlow) bool {
+		return p.NodeByID[fl.SourceRef] != nil && p.NodeByID[fl.TargetRef] != nil
+	}
 	for _, n := range p.Nodes {
 		seenOut := map[string]bool{}
 		for _, fid := range n.Outgoing {
-			if fl := p.FlowByID[fid]; fl != nil && fl.SourceRef == n.ID && !seenOut[fid] {
-				g.Out[n.ID] = append(g.Out[n.ID], fl)
-				seenOut[fid] = true
+			fl := p.FlowByID[fid]
+			if fl == nil || fl.SourceRef != n.ID || seenOut[fid] || !known(fl) {
+				continue
 			}
+			g.Out[n.ID] = append(g.Out[n.ID], fl)
+			seenOut[fid] = true
 		}
 		seenIn := map[string]bool{}
 		for _, fid := range n.Incoming {
-			if fl := p.FlowByID[fid]; fl != nil && fl.TargetRef == n.ID && !seenIn[fid] {
-				g.In[n.ID] = append(g.In[n.ID], fl)
-				seenIn[fid] = true
+			fl := p.FlowByID[fid]
+			if fl == nil || fl.TargetRef != n.ID || seenIn[fid] || !known(fl) {
+				continue
 			}
+			g.In[n.ID] = append(g.In[n.ID], fl)
+			seenIn[fid] = true
 		}
 		// Append flows that exist in the model but are missing from the
 		// declaration lists (tolerates slightly inconsistent files).
 		for _, fl := range p.Flows {
+			if !known(fl) {
+				continue
+			}
 			if fl.SourceRef == n.ID && !seenOut[fl.ID] {
 				g.Out[n.ID] = append(g.Out[n.ID], fl)
 				seenOut[fl.ID] = true
@@ -229,7 +245,11 @@ func (g *Graph) selectSpine(c *Component) {
 	spineSet := map[string]bool{root: true}
 	spineFlows := map[string]bool{}
 	cur := root
-	for g.Proc.NodeByID[cur].Kind != model.KindEndEvent {
+	for {
+		n := g.Proc.NodeByID[cur]
+		if n == nil || n.Kind == model.KindEndEvent {
+			break
+		}
 		var chosen, preferred, fallback *model.SequenceFlow
 		for _, fl := range g.ForwardOut(cur) {
 			if spineSet[fl.TargetRef] {

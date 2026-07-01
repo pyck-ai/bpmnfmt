@@ -18,6 +18,7 @@ var fixtureNames = []string{
 	"001_mc_creation.bpmn",
 	"001_mc_workflow_assigned.bpmn",
 	"tour-execution.bpmn",
+	"picking-subprocess.bpmn",
 }
 
 func fixture(t *testing.T, name string) *model.File {
@@ -95,6 +96,79 @@ func TestFormatFixtures(t *testing.T) {
 				t.Error("formatting is not deterministic")
 			}
 		})
+	}
+}
+
+// TestFormatPickingSubProcess is the acceptance test for expanded embedded
+// sub-processes: the picking workflow that used to crash the tool must now
+// format cleanly, satisfy every layout invariant, keep its interior shapes
+// inside the container rectangle, and be idempotent.
+func TestFormatPickingSubProcess(t *testing.T) {
+	name := "picking-subprocess.bpmn"
+	f := fixture(t, name)
+	res, err := File(f, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Formatted {
+		t.Fatalf("not formatted; findings: %+v", res.Findings)
+	}
+
+	// Re-parses, and bytes outside the DI block are untouched.
+	out, err := model.Parse(res.Output, name+" (formatted)")
+	if err != nil {
+		t.Fatalf("formatted output does not parse: %v", err)
+	}
+	if got, want := stripDI(t, out), stripDI(t, f); !bytes.Equal(got, want) {
+		t.Error("bytes outside the DI block changed")
+	}
+
+	// Layout invariants and zero crossings (interior included).
+	p := f.Processes[0]
+	g := graph.Build(p)
+	lay, err := layout.Compute(p, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range layout.Validate(p, g, lay) {
+		t.Errorf("invariant: %s", v)
+	}
+	if got := layout.CountCrossings(p, lay); got > 0 {
+		t.Errorf("crossings = %d, want 0", got)
+	}
+
+	// The container rectangle must enclose every interior shape.
+	container := p.NodeByID["SubProcess_PickItems"]
+	if container == nil || container.Sub == nil {
+		t.Fatal("SubProcess_PickItems not laid out as an expanded container")
+	}
+	box := lay.Shapes["SubProcess_PickItems"]
+	for _, n := range container.Sub.Nodes {
+		sh, ok := lay.Shapes[n.ID]
+		if !ok {
+			t.Errorf("interior node %s has no shape", n.ID)
+			continue
+		}
+		if sh.X < box.X || sh.Y < box.Y || sh.Right() > box.Right() || sh.Bottom() > box.Bottom() {
+			t.Errorf("interior node %s (%.0f,%.0f %.0fx%.0f) escapes container (%.0f,%.0f %.0fx%.0f)",
+				n.ID, sh.X, sh.Y, sh.W, sh.H, box.X, box.Y, box.W, box.H)
+		}
+	}
+
+	// No missing/orphaned DI on the formatted output.
+	for _, fd := range lint.Check(out) {
+		if fd.Rule == "W6" || fd.Rule == "W7" {
+			t.Errorf("output DI incomplete: %s %s %s", fd.Rule, fd.Element, fd.Message)
+		}
+	}
+
+	// Idempotency and determinism.
+	res2, err := File(out, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res2.Formatted || !bytes.Equal(res2.Output, res.Output) {
+		t.Error("formatting is not idempotent")
 	}
 }
 

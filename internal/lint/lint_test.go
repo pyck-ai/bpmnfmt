@@ -94,6 +94,47 @@ func TestWorkflowAssignedFindings(t *testing.T) {
 	}
 }
 
+func TestPickingSubProcessFindings(t *testing.T) {
+	fs := check(t, "picking-subprocess.bpmn")
+	if n := countSev(fs, SevError); n != 0 {
+		t.Errorf("errors = %d, want 0 (expanded sub-process must lint clean)", n)
+	}
+}
+
+func TestNestedSubProcessRejected(t *testing.T) {
+	// A sub-process nested inside a sub-process (depth 2) must be rejected
+	// with E7 rather than laid out.
+	src := `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" id="d" targetNamespace="x">
+  <bpmn:process id="P">
+    <bpmn:startEvent id="S"><bpmn:outgoing>F1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:subProcess id="SP"><bpmn:incoming>F1</bpmn:incoming><bpmn:outgoing>F2</bpmn:outgoing>
+      <bpmn:startEvent id="IS"><bpmn:outgoing>IF</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:subProcess id="NESTED"><bpmn:incoming>IF</bpmn:incoming><bpmn:outgoing>IF2</bpmn:outgoing></bpmn:subProcess>
+      <bpmn:endEvent id="IE"><bpmn:incoming>IF2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="IF" sourceRef="IS" targetRef="NESTED" />
+      <bpmn:sequenceFlow id="IF2" sourceRef="NESTED" targetRef="IE" />
+    </bpmn:subProcess>
+    <bpmn:endEvent id="E"><bpmn:incoming>F2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="F1" sourceRef="S" targetRef="SP" />
+    <bpmn:sequenceFlow id="F2" sourceRef="SP" targetRef="E" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="PL" bpmnElement="P">
+    <bpmndi:BPMNShape id="SP_di" bpmnElement="SP" isExpanded="true"><bpmndc:Bounds/></bpmndi:BPMNShape>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>`
+	f, err := model.Parse([]byte(src), "nested.bpmn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fs := Check(f); !has(fs, "E7", "NESTED") {
+		for _, fd := range fs {
+			t.Logf("%-7s %-4s %-10s %s", fd.Sev, fd.Rule, fd.Element, fd.Message)
+		}
+		t.Error("expected E7 for nested sub-process NESTED")
+	}
+}
+
 func TestBrokenModels(t *testing.T) {
 	src := `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="http://x">

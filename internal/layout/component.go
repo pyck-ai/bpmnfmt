@@ -18,6 +18,10 @@ type compLayout struct {
 	g *graph.Graph
 	c *graph.Component
 
+	// subSize holds the precomputed size of expanded sub-process container
+	// nodes (id -> box). Other nodes fall back to nodeSize.
+	subSize map[string]Size
+
 	chains  []*chain
 	chainOf map[string]int
 
@@ -46,9 +50,10 @@ type compLayout struct {
 	res *Result
 }
 
-func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component) (*Result, error) {
+func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSize map[string]Size) (*Result, error) {
 	cl := &compLayout{
 		p: p, g: g, c: c,
+		subSize:  subSize,
 		x:        map[string]float64{},
 		rowOf:    map[string]int{},
 		planByID: map[string]*edgePlan{},
@@ -83,9 +88,23 @@ func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component) (*Res
 
 func (cl *compLayout) node(id string) *model.FlowNode { return cl.p.NodeByID[id] }
 
+// sizeOf returns the shape size of a node: the precomputed box for an
+// expanded sub-process container, otherwise the kind-based default.
+func (cl *compLayout) sizeOf(id string) (w, h float64) {
+	if s, ok := cl.subSize[id]; ok {
+		return s.W, s.H
+	}
+	return nodeSize(cl.node(id))
+}
+
 func (cl *compLayout) width(id string) float64 {
-	w, _ := nodeSize(cl.node(id))
+	w, _ := cl.sizeOf(id)
 	return w
+}
+
+func (cl *compLayout) height(id string) float64 {
+	_, h := cl.sizeOf(id)
+	return h
 }
 
 // spacingWidth is the width used for horizontal gap constraints: events and
@@ -93,7 +112,7 @@ func (cl *compLayout) width(id string) float64 {
 // and shapes cannot collide.
 func (cl *compLayout) spacingWidth(id string) float64 {
 	n := cl.node(id)
-	w, _ := nodeSize(n)
+	w, _ := cl.sizeOf(id)
 	if (n.Kind.IsEvent() || n.Kind.IsGateway()) && strings.TrimSpace(n.Name) != "" {
 		lw, _ := textmetrics.Box(n.Name, ExtLabelWrap)
 		if lw+10 > w {

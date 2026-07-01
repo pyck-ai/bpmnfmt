@@ -82,7 +82,7 @@ the test corpus.
 | E3 | error | start event with incoming / end event with outgoing flow |
 | E4 | error | node not wired in (missing incoming or outgoing flow) |
 | E5 | error | unreachable from start / no path to an end event |
-| E7 | error | unsupported construct (pools, lanes, subprocesses, boundary events, parallel gateways, multiple processes) |
+| E7 | error | unsupported construct (pools, lanes, collapsed/nested subprocesses, boundary events, parallel gateways, multiple processes) |
 | W1 | warning | implicit split: activity with >1 outgoing flow |
 | W2 | warning | unlabeled branch out of a decision gateway |
 | W3 | warning | unnamed decision gateway |
@@ -95,10 +95,13 @@ Lint errors block formatting (`-force` overrides).
 
 ## Scope
 
-v1 targets straight-through process models: events (plain, timer, signal,
-message), tasks of all types, exclusive gateways, text annotations.
-Collaborations (pools/lanes), subprocesses, boundary events and
-parallel/inclusive gateways are detected and rejected with E7.
+Targets straight-through process models: events (plain, timer, signal,
+message), tasks of all types, exclusive gateways, text annotations, and
+**expanded embedded sub-processes** — the interior is laid out recursively
+inside the container rectangle (one level deep; multi-instance markers are
+preserved). Collapsed sub-processes, sub-processes nested more than one
+level, collaborations (pools/lanes), boundary events and parallel/inclusive
+gateways are detected and rejected with E7.
 
 ## Development
 
@@ -108,5 +111,5 @@ go test ./internal/format -run TestGolden -update   # refresh golden files
 python3 -m http.server 8077                    # then open hack/viewer/?f=testdata/x.bpmn
 ```
 
-The 6 files under `testdata/` are anonymized real-world fixtures;
+The files under `testdata/` are anonymized real-world fixtures;
 `testdata/golden/` pins their formatted output byte for byte.

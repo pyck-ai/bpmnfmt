@@ -95,6 +95,52 @@ func TestMCCreationComponents(t *testing.T) {
 	}
 }
 
+// TestBuildSkipsFlowsToUnsupportedNodes guards against a nil pointer panic in
+// selectSpine when the process contains sequence flows that point at elements
+// the parser classifies as unsupported (parallelGateway, subProcess,
+// boundaryEvent, ...) and therefore does not register in NodeByID. Before the
+// fix, BuildOpts -> selectSpine dereferenced g.Proc.NodeByID[cur] which was
+// nil for the unsupported gateway.
+func TestBuildSkipsFlowsToUnsupportedNodes(t *testing.T) {
+	const src = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="x">
+  <bpmn:process id="P" isExecutable="true">
+    <bpmn:task id="T1"><bpmn:outgoing>F1</bpmn:outgoing></bpmn:task>
+    <bpmn:endEvent id="E1"><bpmn:incoming>F2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="F1" sourceRef="T1" targetRef="PG"/>
+    <bpmn:sequenceFlow id="F2" sourceRef="PG" targetRef="E1"/>
+    <bpmn:parallelGateway id="PG">
+      <bpmn:incoming>F1</bpmn:incoming>
+      <bpmn:outgoing>F2</bpmn:outgoing>
+    </bpmn:parallelGateway>
+  </bpmn:process>
+</bpmn:definitions>`
+	f, err := model.Parse([]byte(src), "inline.bpmn")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Build panicked on flows to unsupported node: %v", r)
+		}
+	}()
+	g := Build(f.Processes[0])
+	// Flows that reference the unsupported parallelGateway must be filtered
+	// out of the adjacency lists so downstream consumers don't follow them.
+	if got := len(g.Out["T1"]); got != 0 {
+		t.Errorf("Out[T1] = %d flows, want 0 (F1 targets unsupported PG)", got)
+	}
+	if got := len(g.In["E1"]); got != 0 {
+		t.Errorf("In[E1] = %d flows, want 0 (F2 sources from unsupported PG)", got)
+	}
+	// Spines for the two surviving (disconnected) nodes must be set.
+	for _, c := range g.Components {
+		if c.Spine == nil {
+			t.Errorf("component with nodes %v has nil Spine", c.Nodes)
+		}
+	}
+}
+
 func TestTourCreationBatchLoop(t *testing.T) {
 	g := load(t, "tour-creation.bpmn")
 	if len(g.Components) != 1 {
