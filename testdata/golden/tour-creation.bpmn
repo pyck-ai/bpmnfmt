@@ -151,30 +151,30 @@ by a concurrent run (status != "fulfillable").</bpmn:text>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_TourCreation">
       <bpmndi:BPMNShape id="Event_083gpo3_di" bpmnElement="Event_083gpo3">
-        <dc:Bounds x="72" y="233" width="36" height="36" />
+        <dc:Bounds x="72" y="363" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="62" y="276" width="57" height="30" />
+          <dc:Bounds x="62" y="406" width="57" height="30" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_09woa0g_di" bpmnElement="Event_09woa0g">
-        <dc:Bounds x="72" y="363" width="36" height="36" />
+        <dc:Bounds x="72" y="516" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="50" y="406" width="81" height="30" />
+          <dc:Bounds x="50" y="559" width="81" height="30" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_1ojjtgp_di" bpmnElement="Activity_1ojjtgp" bioc:stroke="#6b3c00" bioc:fill="#ffe0b2" color:background-color="#ffe0b2" color:border-color="#6b3c00">
-        <dc:Bounds x="200" y="211" width="100" height="80" />
+        <dc:Bounds x="200" y="341" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_fetch_route_table_di" bpmnElement="Activity_fetch_route_table">
-        <dc:Bounds x="360" y="211" width="100" height="80" />
+        <dc:Bounds x="360" y="341" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_fetch_pick_locations_di" bpmnElement="Activity_fetch_pick_locations">
-        <dc:Bounds x="520" y="211" width="100" height="80" />
+        <dc:Bounds x="520" y="341" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_batches_di" bpmnElement="Gateway_batches" isMarkerVisible="true">
-        <dc:Bounds x="705" y="226" width="50" height="50" />
+        <dc:Bounds x="705" y="356" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="701" y="189" width="59" height="30" />
+          <dc:Bounds x="638" y="332" width="59" height="30" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_create_tour_di" bpmnElement="Activity_create_tour">
@@ -193,39 +193,38 @@ by a concurrent run (status != "fulfillable").</bpmn:text>
         <dc:Bounds x="122" y="50" width="257" height="42" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_tour_di" bpmnElement="TextAnnotation_tour">
-        <dc:Bounds x="765" y="516" width="251" height="87" />
+        <dc:Bounds x="905" y="50" width="251" height="87" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_optimistic_di" bpmnElement="TextAnnotation_optimistic">
-        <dc:Bounds x="1049" y="516" width="243" height="57" />
+        <dc:Bounds x="1189" y="50" width="243" height="57" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_0d1dpdy_di" bpmnElement="Flow_0d1dpdy">
-        <di:waypoint x="108" y="251" />
-        <di:waypoint x="200" y="251" />
+        <di:waypoint x="108" y="381" />
+        <di:waypoint x="200" y="381" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1o0hl68_di" bpmnElement="Flow_1o0hl68">
-        <di:waypoint x="108" y="381" />
-        <di:waypoint x="175" y="381" />
-        <di:waypoint x="175" y="265" />
-        <di:waypoint x="200" y="265" />
+        <di:waypoint x="108" y="534" />
+        <di:waypoint x="175" y="534" />
+        <di:waypoint x="175" y="395" />
+        <di:waypoint x="200" y="395" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_fetch_to_routetable_di" bpmnElement="Flow_fetch_to_routetable">
-        <di:waypoint x="300" y="251" />
-        <di:waypoint x="360" y="251" />
+        <di:waypoint x="300" y="381" />
+        <di:waypoint x="360" y="381" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_routetable_to_picklocs_di" bpmnElement="Flow_routetable_to_picklocs">
-        <di:waypoint x="460" y="251" />
-        <di:waypoint x="520" y="251" />
+        <di:waypoint x="460" y="381" />
+        <di:waypoint x="520" y="381" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_to_gateway_di" bpmnElement="Flow_to_gateway">
-        <di:waypoint x="620" y="251" />
-        <di:waypoint x="705" y="251" />
+        <di:waypoint x="620" y="381" />
+        <di:waypoint x="705" y="381" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_yes_batch_di" bpmnElement="Flow_yes_batch">
-        <di:waypoint x="730" y="276" />
-        <di:waypoint x="730" y="381" />
+        <di:waypoint x="755" y="381" />
         <di:waypoint x="840" y="381" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="738" y="281" width="21" height="15" />
+          <dc:Bounds x="763" y="361" width="21" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_to_update_di" bpmnElement="Flow_to_update">
@@ -235,29 +234,28 @@ by a concurrent run (status != "fulfillable").</bpmn:text>
       <bpmndi:BPMNEdge id="Flow_loop_back_di" bpmnElement="Flow_loop_back">
         <di:waypoint x="1050" y="421" />
         <di:waypoint x="1050" y="476" />
-        <di:waypoint x="744" y="476" />
-        <di:waypoint x="744" y="290" />
-        <di:waypoint x="730" y="290" />
-        <di:waypoint x="730" y="276" />
+        <di:waypoint x="730" y="476" />
+        <di:waypoint x="730" y="406" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_no_batch_di" bpmnElement="Flow_no_batch">
-        <di:waypoint x="755" y="251" />
+        <di:waypoint x="730" y="356" />
+        <di:waypoint x="730" y="251" />
         <di:waypoint x="872" y="251" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="763" y="231" width="15" height="15" />
+          <dc:Bounds x="738" y="336" width="15" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_fetch_di" bpmnElement="Association_fetch">
-        <di:waypoint x="250" y="211" />
+        <di:waypoint x="250" y="341" />
         <di:waypoint x="250" y="92" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_tour_di" bpmnElement="Association_tour">
-        <di:waypoint x="890" y="421" />
-        <di:waypoint x="890" y="516" />
+        <di:waypoint x="910" y="341" />
+        <di:waypoint x="1009" y="137" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_optimistic_di" bpmnElement="Association_optimistic">
-        <di:waypoint x="1080" y="421" />
-        <di:waypoint x="1149" y="516" />
+        <di:waypoint x="1085" y="341" />
+        <di:waypoint x="1286" y="107" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

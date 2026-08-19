@@ -149,9 +149,18 @@ func TestTourCreationBatchLoop(t *testing.T) {
 	if got := backEdges(g); !reflect.DeepEqual(got, []string{"Flow_loop_back"}) {
 		t.Errorf("back edges = %v", got)
 	}
-	spine := g.Components[0].Spine
-	last := spine[len(spine)-1]
-	if last != "Event_0ruyaxs" {
-		t.Errorf("spine must end at the all-tours-created end event, got %v", spine)
+	// Gateway_batches is a loop header: Flow_loop_back returns to it. The
+	// loop body (Yes) stays on the spine and the exit (No -> end event)
+	// becomes an alternate, so the spine ends at the loop's last activity.
+	want := []string{
+		"Event_083gpo3", "Activity_1ojjtgp", "Activity_fetch_route_table",
+		"Activity_fetch_pick_locations", "Gateway_batches",
+		"Activity_create_tour", "Activity_update_status",
+	}
+	if got := g.Components[0].Spine; !reflect.DeepEqual(got, want) {
+		t.Errorf("spine = %v, want %v", got, want)
+	}
+	if g.Components[0].SpineSet["Event_0ruyaxs"] {
+		t.Error("the loop exit must leave the spine, not continue it")
 	}
 }

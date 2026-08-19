@@ -121,6 +121,7 @@ func decompose(g *graph.Graph, c *graph.Component) ([]*chain, map[string]int, er
 	}
 	computeWeights(chains)
 	markLifted(g, c, chains)
+	markLoopExits(g, c, chains)
 	return chains, chainOf, nil
 }
 
@@ -230,6 +231,43 @@ func markLifted(g *graph.Graph, c *graph.Component, chains []*chain) {
 			continue
 		}
 		best.lifted = true
+	}
+}
+
+// isLoopHeader reports whether a back edge closes a loop at this gateway.
+// The spine walk keeps such a gateway's loop body straight (see
+// graph.selectSpine), so everything else hanging off it is a loop exit.
+func isLoopHeader(g *graph.Graph, id string) bool {
+	n := g.Proc.NodeByID[id]
+	if n == nil || !n.Kind.IsGateway() {
+		return false
+	}
+	for _, fl := range g.In[id] {
+		if g.Back[fl.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// markLoopExits lifts the alternates of a spine loop-header gateway. The
+// loop body runs straight through the gateway and its back edge owns the
+// lane below that row, so an exit hanging below would have to cross it:
+// the exit leaves through the top corner instead. A branch that itself
+// sources a back edge keeps rule e's lane below and is left alone.
+func markLoopExits(g *graph.Graph, c *graph.Component, chains []*chain) {
+	kids := childrenOf(chains)
+	for _, ch := range chains {
+		if ch.lifted || ch.isRoot || ch.parentNode == "" {
+			continue
+		}
+		if !c.SpineSet[ch.parentNode] || !isLoopHeader(g, ch.parentNode) {
+			continue
+		}
+		if subtreeHasBackSource(g, chains, kids, ch.idx) {
+			continue
+		}
+		ch.lifted = true
 	}
 }
 

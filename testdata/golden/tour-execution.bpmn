@@ -691,9 +691,7 @@ Executed picks stay executed (physical reality); their boxes remain on the troll
         <di:waypoint x="3074" y="772" />
         <di:waypoint x="3074" y="526" />
         <di:waypoint x="3068" y="526" />
-        <di:waypoint x="3068" y="440" />
-        <di:waypoint x="3054" y="440" />
-        <di:waypoint x="3054" y="426" />
+        <di:waypoint x="3068" y="412" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1a8fb2c_di" bpmnElement="Flow_1a8fb2c">
         <di:waypoint x="3079" y="401" />

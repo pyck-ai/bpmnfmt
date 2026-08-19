@@ -345,6 +345,51 @@ func TestBackEdgeRunsBelow(t *testing.T) {
 	}
 }
 
+// TestLoopHeaderKeepsBodyStraight: rule B at a loop-header gateway. The
+// branch whose subtree feeds the back edge continues straight on the spine
+// row; the back edge owns the lane below it, so the loop exit leaves through
+// the top corner and is routed above.
+func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
+	_, _, lay := layoutOf(t, "tour-creation.bpmn")
+	cy := func(id string) float64 { r := lay.Shapes[id]; return r.Y + r.H/2 }
+	gw := lay.Shapes["Gateway_batches"]
+
+	for _, id := range []string{"Activity_create_tour", "Activity_update_status"} {
+		if d := cy(id) - gw.CY(); d > 0.5 || d < -0.5 {
+			t.Errorf("%s: the loop body must stay on the spine row (dy=%.0f)", id, d)
+		}
+	}
+	if got := cy("Event_0ruyaxs"); got >= gw.CY() {
+		t.Errorf("the loop exit must sit above the spine (cy=%.0f, spine=%.0f)", got, gw.CY())
+	}
+	exit := lay.Edges["Flow_no_batch"]
+	if len(exit) < 2 {
+		t.Fatalf("loop exit has too few waypoints: %v", exit)
+	}
+	if exit[0].X != gw.CX() || exit[0].Y != gw.Y {
+		t.Errorf("the loop exit must leave the gateway's top corner (got %v, want %.0f,%.0f)",
+			exit[0], gw.CX(), gw.Y)
+	}
+	if exit[1].X != exit[0].X || exit[1].Y >= exit[0].Y {
+		t.Errorf("the loop exit must rise out of the gateway (%v -> %v)", exit[0], exit[1])
+	}
+	// The back edge keeps running below the spine and into the diamond's
+	// bottom corner, which is why the exit had to go up.
+	back := lay.Edges["Flow_loop_back"]
+	if len(back) < 2 {
+		t.Fatalf("back edge has too few waypoints: %v", back)
+	}
+	if last := back[len(back)-1]; last.X != gw.CX() || last.Y != gw.Bottom() {
+		t.Errorf("the back edge must enter the gateway's bottom corner (got %v, want %.0f,%.0f)",
+			last, gw.CX(), gw.Bottom())
+	}
+	for _, pt := range back {
+		if pt.Y < gw.CY() {
+			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
+		}
+	}
+}
+
 // TestLiftedSubtreeStaysAbove: a lifted branch takes its whole subtree with
 // it. If descendants fell back to the default downward placement they would
 // land below the spine and their entry edge would have to cross it, which
@@ -440,22 +485,53 @@ func TestTourExecutionAcceptance(t *testing.T) {
 		t.Errorf("Confirmed? not aligned under Scan box (dx=%.0f)", d)
 	}
 
-	// The pick loop runs on a way-back line below the spine row and rises
-	// into its target's bottom; nothing of it goes above the spine.
+	// The pick loop is a way-back edge: it leaves the gateway's bottom
+	// corner, travels back on a line below the rows it passes under and
+	// rises into its target's bottom. Nothing of it goes above the spine.
 	loop := lay.Edges["Flow_0tcw3fm"]
-	if len(loop) == 0 {
-		t.Fatal("pick loop has no waypoints")
+	if len(loop) < 4 {
+		t.Fatalf("pick loop should be a way-back route, got %v", loop)
 	}
+	src := lay.Shapes["Gateway_08wsh14"]
 	tgt := lay.Shapes["Activity_1b1t68m"]
+	rowBottom := math.Max(src.Bottom(), tgt.Bottom())
+
+	if first := loop[0]; first.X != src.CX() || first.Y != src.Bottom() {
+		t.Errorf("pick loop must leave the gateway's bottom corner (got %v, want %.0f,%.0f)",
+			first, src.CX(), src.Bottom())
+	}
 	for _, pt := range loop {
 		if pt.Y < spineY-layout.RowH/2 {
 			t.Errorf("pick loop must stay below the spine's top (y=%.0f)", pt.Y)
 		}
 	}
-	if last := loop[len(loop)-1]; last.Y != tgt.Bottom() {
-		t.Errorf("pick loop should enter the target's bottom (y=%.0f, want %.0f)", last.Y, tgt.Bottom())
+	// The way-back line is the loop's longest horizontal run: it carries
+	// the edge back across the diagram and must lie below the rows rather
+	// than beside them. (The short jog off the diamond's corner is not it.)
+	var line [2]layout.Point
+	widest := 0.0
+	for i := 0; i+1 < len(loop); i++ {
+		if loop[i].Y != loop[i+1].Y {
+			continue
+		}
+		if w := math.Abs(loop[i+1].X - loop[i].X); w > widest {
+			widest, line = w, [2]layout.Point{loop[i], loop[i+1]}
+		}
 	}
-	if maxY := loop[1].Y; maxY <= tgt.Bottom() {
-		t.Error("pick loop's line should run below its rows, not beside them")
+	if line[1].X >= line[0].X {
+		t.Errorf("the way-back line must run right to left (%v -> %v)", line[0], line[1])
+	}
+	if line[0].Y <= rowBottom {
+		t.Errorf("the way-back line should run below its rows, not beside them (y=%.0f, rows end at %.0f)",
+			line[0].Y, rowBottom)
+	}
+	// It ends by rising straight into the target's bottom.
+	last, prev := loop[len(loop)-1], loop[len(loop)-2]
+	if last.X != tgt.CX() || last.Y != tgt.Bottom() {
+		t.Errorf("pick loop should enter the target's bottom (got %v, want %.0f,%.0f)",
+			last, tgt.CX(), tgt.Bottom())
+	}
+	if prev.X != last.X || prev.Y <= last.Y {
+		t.Errorf("pick loop should rise into its target (%v -> %v)", prev, last)
 	}
 }
