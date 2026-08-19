@@ -172,6 +172,50 @@ func subtreeHasBackSource(g *graph.Graph, chains []*chain, kids map[int][]int, i
 	return false
 }
 
+// subtreeNodes collects every node of a chain and its descendants.
+func subtreeNodes(chains []*chain, kids map[int][]int, idx int) map[string]bool {
+	out := map[string]bool{}
+	stack := []int{idx}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, id := range chains[i].nodes {
+			out[id] = true
+		}
+		stack = append(stack, kids[i]...)
+	}
+	return out
+}
+
+// isTerminalSubtree reports whether a branch ends where it is: no chain in
+// it rejoins anything, no forward flow leaves it, and nothing in it sources
+// a back edge. Only such a branch may be routed above its split — a branch
+// that re-merges downstream would have to come back down across the spine,
+// and a loop source needs the lane below its row (rule e).
+func isTerminalSubtree(g *graph.Graph, chains []*chain, kids map[int][]int, idx int) bool {
+	if subtreeHasBackSource(g, chains, kids, idx) {
+		return false
+	}
+	inside := subtreeNodes(chains, kids, idx)
+	stack := []int{idx}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if chains[i].mergeNode != "" {
+			return false
+		}
+		for _, id := range chains[i].nodes {
+			for _, fl := range g.ForwardOut(id) {
+				if !inside[fl.TargetRef] {
+					return false
+				}
+			}
+		}
+		stack = append(stack, kids[i]...)
+	}
+	return true
+}
+
 // shorter is the total order deciding which of two eligible alternates is
 // lifted: smaller subtree weight, then fewer own nodes, then the
 // later-declared entry flow. Chain order is declaration order, so a larger
@@ -189,8 +233,8 @@ func shorter(a, b *chain) bool {
 // markLifted decides, per split node, whether one alternate is routed above
 // the spine. A branch is lifted only when its split sits on the spine, has
 // exactly three forward outgoing flows and exactly two child chains, the
-// branch's subtree contains no back-edge source, and it is the shorter of
-// the two alternates.
+// branch's subtree is terminal (rule L5), and it is the shorter of the two
+// alternates.
 func markLifted(g *graph.Graph, c *graph.Component, chains []*chain) {
 	kids := childrenOf(chains)
 
@@ -227,7 +271,7 @@ func markLifted(g *graph.Graph, c *graph.Component, chains []*chain) {
 		if shorter(b, a) {
 			best = b
 		}
-		if subtreeHasBackSource(g, chains, kids, best.idx) { // (4) no loop sources
+		if !isTerminalSubtree(g, chains, kids, best.idx) { // (4) terminal only
 			continue
 		}
 		best.lifted = true
@@ -253,8 +297,10 @@ func isLoopHeader(g *graph.Graph, id string) bool {
 // markLoopExits lifts the alternates of a spine loop-header gateway. The
 // loop body runs straight through the gateway and its back edge owns the
 // lane below that row, so an exit hanging below would have to cross it:
-// the exit leaves through the top corner instead. A branch that itself
-// sources a back edge keeps rule e's lane below and is left alone.
+// the exit leaves through the top corner instead. Only a terminal exit is
+// lifted (rule L5): one that re-merges downstream hangs below and crosses
+// the back edge's lane, which is legal — crossings on way-back lines are
+// allowed by design.
 func markLoopExits(g *graph.Graph, c *graph.Component, chains []*chain) {
 	kids := childrenOf(chains)
 	for _, ch := range chains {
@@ -264,7 +310,7 @@ func markLoopExits(g *graph.Graph, c *graph.Component, chains []*chain) {
 		if !c.SpineSet[ch.parentNode] || !isLoopHeader(g, ch.parentNode) {
 			continue
 		}
-		if subtreeHasBackSource(g, chains, kids, ch.idx) {
+		if !isTerminalSubtree(g, chains, kids, ch.idx) {
 			continue
 		}
 		ch.lifted = true

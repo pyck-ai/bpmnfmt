@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_LiftOnlyTerminal" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_LiftOnlyTerminal" name="Lift only terminal branches" isExecutable="true">
+    <bpmn:documentation>Rule L5 fixture: a branch is routed ABOVE its split only when its whole
+subtree is TERMINAL — nothing in it rejoins, no forward flow leaves it and no
+node in it sources a back edge. A branch that re-merges into the spine
+downstream always hangs below, however short it is.
+
+Shape: Start -&gt; Intake -&gt; G_Split -&gt; G_Join -&gt; Finalise -&gt; End on the
+spine, with two two-task alternates that both rejoin at G_Join.
+
+This is the discriminating case. G_Split is a three-way split with exactly
+two alternates of equal weight, so the older rule — "lift the shorter one
+unless it sources a back edge" — lifted one of them. Both re-merge at
+G_Join, so a lifted branch would have to come back DOWN across the spine to
+reach it, and its rejoin had no corridor that did not cut through the spine
+row. Under L5 neither lifts and both stack below, longest first.
+
+split-three-corners.bpmn is the positive control for the same rule: its
+short alternate dead-ends at its own end event, so it is terminal and still
+lifts.
+
+Exercises:
+  - nothing is placed above the split's row,
+  - the two re-merging alternates occupy two distinct rows below the spine,
+  - both rejoin edges rise into G_Join from below.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Terminal" name="Case opened">
+      <bpmn:outgoing>Flow_start_intake</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_intake" sourceRef="Start_Terminal" targetRef="Task_Intake" />
+    <bpmn:serviceTask id="Task_Intake" name="Record case">
+      <bpmn:incoming>Flow_start_intake</bpmn:incoming>
+      <bpmn:outgoing>Flow_intake_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_intake_split" sourceRef="Task_Intake" targetRef="G_Split" />
+    <bpmn:exclusiveGateway id="G_Split" name="Extra checks?">
+      <bpmn:incoming>Flow_intake_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_split_join</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_a</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_b</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_split_join" name="none" sourceRef="G_Split" targetRef="G_Join" />
+    <bpmn:exclusiveGateway id="G_Join" name="Checks done">
+      <bpmn:incoming>Flow_split_join</bpmn:incoming>
+      <bpmn:incoming>Flow_a2_join</bpmn:incoming>
+      <bpmn:incoming>Flow_b2_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_join_finalise</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_join_finalise" sourceRef="G_Join" targetRef="Task_Finalise" />
+    <bpmn:serviceTask id="Task_Finalise" name="Finalise case">
+      <bpmn:incoming>Flow_join_finalise</bpmn:incoming>
+      <bpmn:outgoing>Flow_finalise_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_finalise_end" sourceRef="Task_Finalise" targetRef="End_Terminal" />
+    <bpmn:endEvent id="End_Terminal" name="Case closed">
+      <bpmn:incoming>Flow_finalise_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_split_a" name="credit" sourceRef="G_Split" targetRef="Task_A1" />
+    <bpmn:serviceTask id="Task_A1" name="Pull credit file">
+      <bpmn:incoming>Flow_split_a</bpmn:incoming>
+      <bpmn:outgoing>Flow_a1_a2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_a1_a2" sourceRef="Task_A1" targetRef="Task_A2" />
+    <bpmn:serviceTask id="Task_A2" name="Score credit file">
+      <bpmn:incoming>Flow_a1_a2</bpmn:incoming>
+      <bpmn:outgoing>Flow_a2_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_a2_join" sourceRef="Task_A2" targetRef="G_Join" />
+    <bpmn:sequenceFlow id="Flow_split_b" name="fraud" sourceRef="G_Split" targetRef="Task_B1" />
+    <bpmn:serviceTask id="Task_B1" name="Run fraud rules">
+      <bpmn:incoming>Flow_split_b</bpmn:incoming>
+      <bpmn:outgoing>Flow_b1_b2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_b1_b2" sourceRef="Task_B1" targetRef="Task_B2" />
+    <bpmn:serviceTask id="Task_B2" name="Review fraud hits">
+      <bpmn:incoming>Flow_b1_b2</bpmn:incoming>
+      <bpmn:outgoing>Flow_b2_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_b2_join" sourceRef="Task_B2" targetRef="G_Join" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_LiftOnlyTerminal">
+    <bpmndi:BPMNPlane id="BPMNPlane_LiftOnlyTerminal" bpmnElement="Process_LiftOnlyTerminal" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
