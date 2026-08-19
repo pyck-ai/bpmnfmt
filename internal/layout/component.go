@@ -125,6 +125,31 @@ func (cl *compLayout) spacingWidth(id string) float64 {
 // shape returns the node rect; only valid after materializeY.
 func (cl *compLayout) shape(id string) Rect { return cl.res.Shapes[id] }
 
+// pastGatewayCluster advances an alignment successor along its chain past a
+// run of consecutive gateways, stopping at the first non-gateway node (or at
+// the chain's end). A gateway carries no branch of its own to align to, so a
+// whole cluster shares the column of the node that follows it.
+func (cl *compLayout) pastGatewayCluster(succ string, chainIdx int) string {
+	if succ == "" || chainIdx < 0 || chainIdx >= len(cl.chains) {
+		return succ
+	}
+	nodes := cl.chains[chainIdx].nodes
+	at := -1
+	for i, id := range nodes {
+		if id == succ {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		return succ // not on the parent chain; leave the guard below to reject it
+	}
+	for at+1 < len(nodes) && cl.node(nodes[at]).Kind.IsGateway() {
+		at++
+	}
+	return nodes[at]
+}
+
 // assignX propagates x constraints in topological order over forward flows.
 // All constraints have the form x(later) >= x(earlier) + delta, so a single
 // pass suffices.
@@ -151,10 +176,14 @@ func (cl *compLayout) assignX() error {
 		}
 		head := ch.nodes[0]
 		if ch.parentNode != "" {
-			// Branch heads align with the column of the split's happy-path
-			// successor, so every row's first element starts in the same
-			// column and the entry edge turns a single corner into the
-			// head's left side.
+			// Branch heads align with the column of the first NON-GATEWAY
+			// node following the split on its parent chain, so every row's
+			// first element starts in the same column and the entry edge
+			// turns a single corner into the head's left side. Consecutive
+			// gateways form one cluster and share that column: aligning to
+			// a neighbouring gateway instead would stack the branch heads
+			// of a cluster in as many columns as the cluster has gateways
+			// (rule L4).
 			succ := ""
 			for _, fl := range cl.g.ForwardOut(ch.parentNode) {
 				if fl.ID != ch.entryFlow {
@@ -162,6 +191,7 @@ func (cl *compLayout) assignX() error {
 					break
 				}
 			}
+			succ = cl.pastGatewayCluster(succ, ch.parent)
 			// Aligning to a successor that sits at or past this branch's
 			// rejoin point would close a cycle: the merge node is already
 			// constrained to at-or-right-of the branch tail, which is

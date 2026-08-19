@@ -30,6 +30,7 @@ var fixtureNames = []string{
 	"corridor-row-ranges.bpmn",
 	"lift-only-terminal.bpmn",
 	"cross-link-adjacent.bpmn",
+	"gateway-cluster-columns.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -59,8 +60,19 @@ func fixture(t *testing.T, name string) *model.File {
 
 // maxCrossings: budget for FORBIDDEN crossings (pairs not involving a
 // way-back edge; crossings on way-back lines are allowed by design). Zero
-// everywhere.
-var maxCrossings = map[string]int{}
+// everywhere except where a rule that is only half-implemented pays for it.
+var maxCrossings = map[string]int{
+	// Rule L4 aligns every branch head of a gateway cluster to one column,
+	// so the entry elbow of the FIRST gateway now runs along its row past
+	// the column of the SECOND, whose trunk drops through that row to reach
+	// the tier below. Both routes are structurally fixed by planBranchEntry
+	// (leave the corner, run in the gateway's own column, turn once into
+	// the head's left side), so with one shared head column the deeper
+	// trunk necessarily crosses the shallower entry. Removing it needs the
+	// branch-entry routing rules that are still outstanding (L6/L1/L3); it
+	// is budgeted here rather than hidden.
+	"gateway-cluster-columns.bpmn": 1,
+}
 
 func TestFormatFixtures(t *testing.T) {
 	for _, name := range fixtureNames {
@@ -486,6 +498,37 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
+	}
+}
+
+// TestGatewayClusterColumns: rule L4. Consecutive gateways form one cluster
+// and share one branch-head column — the column of the first non-gateway
+// node following the cluster on the parent chain. G1 and G2 sit back to
+// back, so aligning each split to its own immediate successor would put
+// G1's alternate a column left of G2's two.
+func TestGatewayClusterColumns(t *testing.T) {
+	_, _, lay := layoutOf(t, "gateway-cluster-columns.bpmn")
+	cx := func(id string) float64 { r := lay.Shapes[id]; return r.X + r.W/2 }
+
+	want := cx("Task_Main")
+	for _, id := range []string{"Task_A", "Task_B", "Task_C"} {
+		if d := cx(id) - want; d > 0.5 || d < -0.5 {
+			t.Errorf("%s must align to the column after the gateway cluster (cx=%.0f, want %.0f)",
+				id, cx(id), want)
+		}
+	}
+	// The alignment carries through the rows: the end events line up too.
+	wantEnd := cx("End_Main")
+	for _, id := range []string{"End_A", "End_B", "End_C"} {
+		if d := cx(id) - wantEnd; d > 0.5 || d < -0.5 {
+			t.Errorf("%s must line up with End_Main (cx=%.0f, want %.0f)", id, cx(id), wantEnd)
+		}
+	}
+	// The cluster itself is two gateways deep, which is what makes this
+	// different from the cluster-size-1 case in branch-entry-elbow.
+	if cx("G1") >= cx("G2") || cx("G2") >= want {
+		t.Errorf("fixture no longer has a two-gateway cluster before the alignment column (G1=%.0f, G2=%.0f, col=%.0f)",
+			cx("G1"), cx("G2"), want)
 	}
 }
 
