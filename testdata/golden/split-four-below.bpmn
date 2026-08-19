@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_SplitFourBelow" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_SplitFourBelow" name="Split four below" isExecutable="true">
+    <bpmn:documentation>Rule B fixture: a split with FOUR outgoing flows lifts nothing. Every
+alternate hangs below the spine, no matter how short it is.
+
+Shape: Start -&gt; Classify -&gt; Gateway_FourWaySplit -&gt; Ship -&gt; End (happy path),
+plus three dead-ending alternates of 3, 2 and 1 tasks. The alternate lengths
+are deliberately unequal: with only three outgoing flows the shortest one
+would have been lifted above the spine (rule A), so a lift here would be a
+rule-B regression rather than a coincidence.
+
+All three alternate heads align to the happy successor's column, so their row
+extents overlap and none of them may share a tier.
+
+Exercises:
+  - nothing above the spine row (the spine is the topmost row),
+  - three alternates on three distinct rows below the spine.</bpmn:documentation>
+    <bpmn:startEvent id="Start_FourWay" name="Parcel scanned">
+      <bpmn:outgoing>Flow_start_to_classify</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_classify" sourceRef="Start_FourWay" targetRef="Task_Classify" />
+    <bpmn:serviceTask id="Task_Classify" name="Classify parcel">
+      <bpmn:incoming>Flow_start_to_classify</bpmn:incoming>
+      <bpmn:outgoing>Flow_classify_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_classify_to_split" sourceRef="Task_Classify" targetRef="Gateway_FourWaySplit" />
+    <bpmn:exclusiveGateway id="Gateway_FourWaySplit" name="Route?">
+      <bpmn:incoming>Flow_classify_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_four_happy</bpmn:outgoing>
+      <bpmn:outgoing>Flow_four_hold</bpmn:outgoing>
+      <bpmn:outgoing>Flow_four_return</bpmn:outgoing>
+      <bpmn:outgoing>Flow_four_cancel</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_four_happy" name="ship" sourceRef="Gateway_FourWaySplit" targetRef="Task_Ship" />
+    <bpmn:sequenceFlow id="Flow_four_hold" name="hold" sourceRef="Gateway_FourWaySplit" targetRef="Task_HoldInspect" />
+    <bpmn:sequenceFlow id="Flow_four_return" name="return" sourceRef="Gateway_FourWaySplit" targetRef="Task_ReturnLabel" />
+    <bpmn:sequenceFlow id="Flow_four_cancel" name="cancel" sourceRef="Gateway_FourWaySplit" targetRef="Task_CancelParcel" />
+    <bpmn:serviceTask id="Task_Ship" name="Ship parcel">
+      <bpmn:incoming>Flow_four_happy</bpmn:incoming>
+      <bpmn:outgoing>Flow_ship_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_ship_to_end" sourceRef="Task_Ship" targetRef="End_Shipped" />
+    <bpmn:endEvent id="End_Shipped" name="Parcel shipped">
+      <bpmn:incoming>Flow_ship_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_HoldInspect" name="Inspect parcel">
+      <bpmn:incoming>Flow_four_hold</bpmn:incoming>
+      <bpmn:outgoing>Flow_holdinspect_to_holdrepack</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_holdinspect_to_holdrepack" sourceRef="Task_HoldInspect" targetRef="Task_HoldRepack" />
+    <bpmn:serviceTask id="Task_HoldRepack" name="Repack parcel">
+      <bpmn:incoming>Flow_holdinspect_to_holdrepack</bpmn:incoming>
+      <bpmn:outgoing>Flow_holdrepack_to_holdrelease</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_holdrepack_to_holdrelease" sourceRef="Task_HoldRepack" targetRef="Task_HoldRelease" />
+    <bpmn:serviceTask id="Task_HoldRelease" name="Release hold">
+      <bpmn:incoming>Flow_holdrepack_to_holdrelease</bpmn:incoming>
+      <bpmn:outgoing>Flow_holdrelease_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_holdrelease_to_end" sourceRef="Task_HoldRelease" targetRef="End_Held" />
+    <bpmn:endEvent id="End_Held" name="Parcel held">
+      <bpmn:incoming>Flow_holdrelease_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_ReturnLabel" name="Print return label">
+      <bpmn:incoming>Flow_four_return</bpmn:incoming>
+      <bpmn:outgoing>Flow_returnlabel_to_returnhandover</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_returnlabel_to_returnhandover" sourceRef="Task_ReturnLabel" targetRef="Task_ReturnHandover" />
+    <bpmn:serviceTask id="Task_ReturnHandover" name="Hand over to carrier">
+      <bpmn:incoming>Flow_returnlabel_to_returnhandover</bpmn:incoming>
+      <bpmn:outgoing>Flow_returnhandover_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_returnhandover_to_end" sourceRef="Task_ReturnHandover" targetRef="End_Returned" />
+    <bpmn:endEvent id="End_Returned" name="Parcel returned">
+      <bpmn:incoming>Flow_returnhandover_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_CancelParcel" name="Cancel shipment">
+      <bpmn:incoming>Flow_four_cancel</bpmn:incoming>
+      <bpmn:outgoing>Flow_cancelparcel_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_cancelparcel_to_end" sourceRef="Task_CancelParcel" targetRef="End_Cancelled" />
+    <bpmn:endEvent id="End_Cancelled" name="Parcel cancelled">
+      <bpmn:incoming>Flow_cancelparcel_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_SplitFourBelow">
+      <bpmndi:BPMNShape id="Start_FourWay_di" bpmnElement="Start_FourWay">
+        <dc:Bounds x="73" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="122" width="83" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Classify_di" bpmnElement="Task_Classify">
+        <dc:Bounds x="201" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_FourWaySplit_di" bpmnElement="Gateway_FourWaySplit" isMarkerVisible="true">
+        <dc:Bounds x="386" y="72" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="392" y="50" width="39" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Ship_di" bpmnElement="Task_Ship">
+        <dc:Bounds x="521" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Shipped_di" bpmnElement="End_Shipped">
+        <dc:Bounds x="713" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="692" y="122" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_HoldInspect_di" bpmnElement="Task_HoldInspect">
+        <dc:Bounds x="521" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_HoldRepack_di" bpmnElement="Task_HoldRepack">
+        <dc:Bounds x="681" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_HoldRelease_di" bpmnElement="Task_HoldRelease">
+        <dc:Bounds x="841" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Held_di" bpmnElement="End_Held">
+        <dc:Bounds x="1033" y="209" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1021" y="252" width="60" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReturnLabel_di" bpmnElement="Task_ReturnLabel">
+        <dc:Bounds x="521" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReturnHandover_di" bpmnElement="Task_ReturnHandover">
+        <dc:Bounds x="681" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Returned_di" bpmnElement="End_Returned">
+        <dc:Bounds x="873" y="339" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="850" y="382" width="82" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CancelParcel_di" bpmnElement="Task_CancelParcel">
+        <dc:Bounds x="521" y="447" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Cancelled_di" bpmnElement="End_Cancelled">
+        <dc:Bounds x="713" y="469" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="687" y="512" width="88" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_to_classify_di" bpmnElement="Flow_start_to_classify">
+        <di:waypoint x="109" y="97" />
+        <di:waypoint x="201" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_classify_to_split_di" bpmnElement="Flow_classify_to_split">
+        <di:waypoint x="301" y="97" />
+        <di:waypoint x="386" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four_happy_di" bpmnElement="Flow_four_happy">
+        <di:waypoint x="436" y="97" />
+        <di:waypoint x="521" y="97" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="444" y="77" width="22" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four_hold_di" bpmnElement="Flow_four_hold">
+        <di:waypoint x="411" y="122" />
+        <di:waypoint x="411" y="227" />
+        <di:waypoint x="521" y="227" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="419" y="127" width="23" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four_return_di" bpmnElement="Flow_four_return">
+        <di:waypoint x="411" y="122" />
+        <di:waypoint x="411" y="357" />
+        <di:waypoint x="521" y="357" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="419" y="155" width="31" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four_cancel_di" bpmnElement="Flow_four_cancel">
+        <di:waypoint x="411" y="122" />
+        <di:waypoint x="411" y="487" />
+        <di:waypoint x="521" y="487" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="419" y="183" width="35" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ship_to_end_di" bpmnElement="Flow_ship_to_end">
+        <di:waypoint x="621" y="97" />
+        <di:waypoint x="713" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_holdinspect_to_holdrepack_di" bpmnElement="Flow_holdinspect_to_holdrepack">
+        <di:waypoint x="621" y="227" />
+        <di:waypoint x="681" y="227" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_holdrepack_to_holdrelease_di" bpmnElement="Flow_holdrepack_to_holdrelease">
+        <di:waypoint x="781" y="227" />
+        <di:waypoint x="841" y="227" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_holdrelease_to_end_di" bpmnElement="Flow_holdrelease_to_end">
+        <di:waypoint x="941" y="227" />
+        <di:waypoint x="1033" y="227" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_returnlabel_to_returnhandover_di" bpmnElement="Flow_returnlabel_to_returnhandover">
+        <di:waypoint x="621" y="357" />
+        <di:waypoint x="681" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_returnhandover_to_end_di" bpmnElement="Flow_returnhandover_to_end">
+        <di:waypoint x="781" y="357" />
+        <di:waypoint x="873" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_cancelparcel_to_end_di" bpmnElement="Flow_cancelparcel_to_end">
+        <di:waypoint x="621" y="487" />
+        <di:waypoint x="713" y="487" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

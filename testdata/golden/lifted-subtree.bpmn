@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_LiftedSubtree" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_LiftedSubtree" name="Lifted subtree" isExecutable="true">
+    <bpmn:documentation>Direction-inheritance fixture for rule A.
+
+When a branch is lifted above the spine, its whole subtree must come with it.
+Lifting only the named branch and letting its children fall back to the
+default downward placement lands them BELOW the spine, forcing their entry
+edge to cross the spine row — which has no corridor, so the router falls
+through to a margin route across the whole diagram.
+
+Shape: a spine three-way split (Triage) whose SHORT alternate is itself a
+two-way split, so the lifted branch has descendants. The long alternate
+stays below.
+
+  short alternate (6 nodes, LIFTED): Escalate -&gt; Gateway_Urgency
+                                     -&gt; {Page on-call | Queue incident}
+  long alternate (7 nodes, below):   Investigate -&gt; Reproduce -&gt; Patch
+                                     -&gt; Verify -&gt; Document -&gt; Release
+
+The long alternate is deliberately one node longer than the short one, so
+that the branch carrying the nested split is the one that lifts. If the
+counts were reversed, a straight chain would lift and direction inheritance
+would never be exercised.
+
+Exercises:
+  - the lifted branch AND every descendant chain sit strictly above the
+    spine row (direction inheritance),
+  - no flow is margin-routed across the diagram,
+  - a nested split inside a lifted branch does not itself lift, because
+    rule A only applies to gateways sitting on the spine.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Lifted" name="Ticket raised">
+      <bpmn:outgoing>Flow_start_to_triage</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_triage" sourceRef="Start_Lifted" targetRef="Task_TriageTicket" />
+    <bpmn:serviceTask id="Task_TriageTicket" name="Triage ticket">
+      <bpmn:incoming>Flow_start_to_triage</bpmn:incoming>
+      <bpmn:outgoing>Flow_triage_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_triage_to_split" sourceRef="Task_TriageTicket" targetRef="Gateway_Severity" />
+    <bpmn:exclusiveGateway id="Gateway_Severity" name="Severity?">
+      <bpmn:incoming>Flow_triage_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_sev_normal</bpmn:outgoing>
+      <bpmn:outgoing>Flow_sev_critical</bpmn:outgoing>
+      <bpmn:outgoing>Flow_sev_bug</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_sev_normal" name="normal" sourceRef="Gateway_Severity" targetRef="Task_AnswerTicket" />
+    <bpmn:sequenceFlow id="Flow_sev_critical" name="critical" sourceRef="Gateway_Severity" targetRef="Task_Escalate" />
+    <bpmn:sequenceFlow id="Flow_sev_bug" name="bug" sourceRef="Gateway_Severity" targetRef="Task_Investigate" />
+    <bpmn:serviceTask id="Task_AnswerTicket" name="Answer ticket">
+      <bpmn:incoming>Flow_sev_normal</bpmn:incoming>
+      <bpmn:outgoing>Flow_answer_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_answer_to_end" sourceRef="Task_AnswerTicket" targetRef="End_Answered" />
+    <bpmn:endEvent id="End_Answered" name="Ticket answered">
+      <bpmn:incoming>Flow_answer_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_Escalate" name="Escalate incident">
+      <bpmn:incoming>Flow_sev_critical</bpmn:incoming>
+      <bpmn:outgoing>Flow_escalate_to_urgency</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_escalate_to_urgency" sourceRef="Task_Escalate" targetRef="Gateway_Urgency" />
+    <bpmn:exclusiveGateway id="Gateway_Urgency" name="Page now?">
+      <bpmn:incoming>Flow_escalate_to_urgency</bpmn:incoming>
+      <bpmn:outgoing>Flow_urgency_page</bpmn:outgoing>
+      <bpmn:outgoing>Flow_urgency_queue</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_urgency_page" name="yes" sourceRef="Gateway_Urgency" targetRef="Task_PageOncall" />
+    <bpmn:sequenceFlow id="Flow_urgency_queue" name="no" sourceRef="Gateway_Urgency" targetRef="Task_QueueIncident" />
+    <bpmn:serviceTask id="Task_PageOncall" name="Page on-call">
+      <bpmn:incoming>Flow_urgency_page</bpmn:incoming>
+      <bpmn:outgoing>Flow_page_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_page_to_end" sourceRef="Task_PageOncall" targetRef="End_Paged" />
+    <bpmn:endEvent id="End_Paged" name="On-call paged">
+      <bpmn:incoming>Flow_page_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_QueueIncident" name="Queue incident">
+      <bpmn:incoming>Flow_urgency_queue</bpmn:incoming>
+      <bpmn:outgoing>Flow_queue_to_end</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_queue_to_end" sourceRef="Task_QueueIncident" targetRef="End_Queued" />
+    <bpmn:endEvent id="End_Queued" name="Incident queued">
+      <bpmn:incoming>Flow_queue_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_Investigate" name="Investigate report">
+      <bpmn:incoming>Flow_sev_bug</bpmn:incoming>
+      <bpmn:outgoing>Flow_investigate_to_reproduce</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_investigate_to_reproduce" sourceRef="Task_Investigate" targetRef="Task_Reproduce" />
+    <bpmn:userTask id="Task_Reproduce" name="Reproduce defect">
+      <bpmn:incoming>Flow_investigate_to_reproduce</bpmn:incoming>
+      <bpmn:outgoing>Flow_reproduce_to_patch</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_reproduce_to_patch" sourceRef="Task_Reproduce" targetRef="Task_Patch" />
+    <bpmn:serviceTask id="Task_Patch" name="Patch defect">
+      <bpmn:incoming>Flow_reproduce_to_patch</bpmn:incoming>
+      <bpmn:outgoing>Flow_patch_to_verify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_patch_to_verify" sourceRef="Task_Patch" targetRef="Task_VerifyFix" />
+    <bpmn:serviceTask id="Task_VerifyFix" name="Verify fix">
+      <bpmn:incoming>Flow_patch_to_verify</bpmn:incoming>
+      <bpmn:outgoing>Flow_verify_to_document</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_verify_to_document" sourceRef="Task_VerifyFix" targetRef="Task_DocumentFix" />
+    <bpmn:userTask id="Task_DocumentFix" name="Document fix">
+      <bpmn:incoming>Flow_verify_to_document</bpmn:incoming>
+      <bpmn:outgoing>Flow_document_to_release</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_document_to_release" sourceRef="Task_DocumentFix" targetRef="Task_ReleaseFix" />
+    <bpmn:serviceTask id="Task_ReleaseFix" name="Release fix">
+      <bpmn:incoming>Flow_document_to_release</bpmn:incoming>
+      <bpmn:outgoing>Flow_verify_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_verify_to_end" sourceRef="Task_ReleaseFix" targetRef="End_Fixed" />
+    <bpmn:endEvent id="End_Fixed" name="Defect fixed">
+      <bpmn:incoming>Flow_verify_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_LiftedSubtree">
+      <bpmndi:BPMNShape id="Start_Lifted_di" bpmnElement="Start_Lifted">
+        <dc:Bounds x="66" y="332" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="375" width="68" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_TriageTicket_di" bpmnElement="Task_TriageTicket">
+        <dc:Bounds x="194" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Severity_di" bpmnElement="Gateway_Severity" isMarkerVisible="true">
+        <dc:Bounds x="379" y="325" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="321" y="316" width="50" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AnswerTicket_di" bpmnElement="Task_AnswerTicket">
+        <dc:Bounds x="514" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Answered_di" bpmnElement="End_Answered">
+        <dc:Bounds x="706" y="332" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="680" y="375" width="87" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Escalate_di" bpmnElement="Task_Escalate">
+        <dc:Bounds x="514" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Urgency_di" bpmnElement="Gateway_Urgency" isMarkerVisible="true">
+        <dc:Bounds x="699" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="694" y="252" width="60" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_PageOncall_di" bpmnElement="Task_PageOncall">
+        <dc:Bounds x="834" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Paged_di" bpmnElement="End_Paged">
+        <dc:Bounds x="1026" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1007" y="245" width="75" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_QueueIncident_di" bpmnElement="Task_QueueIncident">
+        <dc:Bounds x="834" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Queued_di" bpmnElement="End_Queued">
+        <dc:Bounds x="1026" y="72" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1001" y="115" width="85" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Investigate_di" bpmnElement="Task_Investigate">
+        <dc:Bounds x="514" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Reproduce_di" bpmnElement="Task_Reproduce">
+        <dc:Bounds x="674" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Patch_di" bpmnElement="Task_Patch">
+        <dc:Bounds x="834" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_VerifyFix_di" bpmnElement="Task_VerifyFix">
+        <dc:Bounds x="994" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_DocumentFix_di" bpmnElement="Task_DocumentFix">
+        <dc:Bounds x="1154" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReleaseFix_di" bpmnElement="Task_ReleaseFix">
+        <dc:Bounds x="1314" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Fixed_di" bpmnElement="End_Fixed">
+        <dc:Bounds x="1506" y="462" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1492" y="505" width="63" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_to_triage_di" bpmnElement="Flow_start_to_triage">
+        <di:waypoint x="102" y="350" />
+        <di:waypoint x="194" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_triage_to_split_di" bpmnElement="Flow_triage_to_split">
+        <di:waypoint x="294" y="350" />
+        <di:waypoint x="379" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_sev_normal_di" bpmnElement="Flow_sev_normal">
+        <di:waypoint x="429" y="350" />
+        <di:waypoint x="514" y="350" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="437" y="330" width="37" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_sev_critical_di" bpmnElement="Flow_sev_critical">
+        <di:waypoint x="404" y="325" />
+        <di:waypoint x="404" y="220" />
+        <di:waypoint x="514" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="412" y="305" width="34" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_sev_bug_di" bpmnElement="Flow_sev_bug">
+        <di:waypoint x="404" y="375" />
+        <di:waypoint x="404" y="480" />
+        <di:waypoint x="514" y="480" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="412" y="380" width="20" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_answer_to_end_di" bpmnElement="Flow_answer_to_end">
+        <di:waypoint x="614" y="350" />
+        <di:waypoint x="706" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_escalate_to_urgency_di" bpmnElement="Flow_escalate_to_urgency">
+        <di:waypoint x="614" y="220" />
+        <di:waypoint x="699" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_urgency_page_di" bpmnElement="Flow_urgency_page">
+        <di:waypoint x="749" y="220" />
+        <di:waypoint x="834" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="757" y="200" width="19" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_urgency_queue_di" bpmnElement="Flow_urgency_queue">
+        <di:waypoint x="724" y="195" />
+        <di:waypoint x="724" y="90" />
+        <di:waypoint x="834" y="90" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="732" y="175" width="13" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_page_to_end_di" bpmnElement="Flow_page_to_end">
+        <di:waypoint x="934" y="220" />
+        <di:waypoint x="1026" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_queue_to_end_di" bpmnElement="Flow_queue_to_end">
+        <di:waypoint x="934" y="90" />
+        <di:waypoint x="1026" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_investigate_to_reproduce_di" bpmnElement="Flow_investigate_to_reproduce">
+        <di:waypoint x="614" y="480" />
+        <di:waypoint x="674" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_reproduce_to_patch_di" bpmnElement="Flow_reproduce_to_patch">
+        <di:waypoint x="774" y="480" />
+        <di:waypoint x="834" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_patch_to_verify_di" bpmnElement="Flow_patch_to_verify">
+        <di:waypoint x="934" y="480" />
+        <di:waypoint x="994" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_verify_to_document_di" bpmnElement="Flow_verify_to_document">
+        <di:waypoint x="1094" y="480" />
+        <di:waypoint x="1154" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_document_to_release_di" bpmnElement="Flow_document_to_release">
+        <di:waypoint x="1254" y="480" />
+        <di:waypoint x="1314" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_verify_to_end_di" bpmnElement="Flow_verify_to_end">
+        <di:waypoint x="1414" y="480" />
+        <di:waypoint x="1506" y="480" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

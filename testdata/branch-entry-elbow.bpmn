@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_BranchEntryElbow" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_BranchEntryElbow" name="Branch entry elbow" isExecutable="true">
+    <bpmn:documentation>Rule D fixture: the entry edge of an alternate is a single elbow. It leaves
+the gateway through the bottom corner IN THE GATEWAY'S OWN COLUMN, turns once
+at the branch row and enters the branch head's LEFT side.
+
+Shape: Start -&gt; Submit -&gt; Gateway_ElbowSplit -&gt; Await ack (intermediate catch
+event) -&gt; Finalise -&gt; End (happy path), plus one dead-ending alternate of two
+tasks. Two outgoing flows mean nothing is lifted, so the alternate hangs
+below and its entry edge exits the gateway's bottom.
+
+The happy successor is a 36px EVENT while the branch head is a 100px TASK.
+The widths are deliberately different so the fixture distinguishes the two
+possible readings of "heads align to the happy-successor column": the
+layouter constrains the two CENTERS to be equal (assignX adds
+cons[head] = {succ, 0} on node centers), so the left edges do NOT line up.
+
+Exercises:
+  - the entry edge has exactly three waypoints,
+  - the first two share the gateway's center x,
+  - the third is the branch head's left edge at the head's center y,
+  - the branch head's center x equals the happy successor's center x.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Elbow" name="Request filed">
+      <bpmn:outgoing>Flow_start_to_submit</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_submit" sourceRef="Start_Elbow" targetRef="Task_Submit" />
+    <bpmn:serviceTask id="Task_Submit" name="Submit request">
+      <bpmn:incoming>Flow_start_to_submit</bpmn:incoming>
+      <bpmn:outgoing>Flow_submit_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_submit_to_split" sourceRef="Task_Submit" targetRef="Gateway_ElbowSplit" />
+    <bpmn:exclusiveGateway id="Gateway_ElbowSplit" name="Auto ok?">
+      <bpmn:incoming>Flow_submit_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_elbow_happy</bpmn:outgoing>
+      <bpmn:outgoing>Flow_elbow_alt</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_elbow_happy" name="yes" sourceRef="Gateway_ElbowSplit" targetRef="Event_AwaitAck" />
+    <bpmn:sequenceFlow id="Flow_elbow_alt" name="no" sourceRef="Gateway_ElbowSplit" targetRef="Task_AltReview" />
+    <bpmn:intermediateCatchEvent id="Event_AwaitAck" name="Ack">
+      <bpmn:incoming>Flow_elbow_happy</bpmn:incoming>
+      <bpmn:outgoing>Flow_awaitack_to_finalise</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageEventDefinition_AwaitAck" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="Flow_awaitack_to_finalise" sourceRef="Event_AwaitAck" targetRef="Task_Finalise" />
+    <bpmn:serviceTask id="Task_Finalise" name="Finalise request">
+      <bpmn:incoming>Flow_awaitack_to_finalise</bpmn:incoming>
+      <bpmn:outgoing>Flow_finalise_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_finalise_to_end" sourceRef="Task_Finalise" targetRef="End_Elbow" />
+    <bpmn:endEvent id="End_Elbow" name="Request done">
+      <bpmn:incoming>Flow_finalise_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_AltReview" name="Review manually">
+      <bpmn:incoming>Flow_elbow_alt</bpmn:incoming>
+      <bpmn:outgoing>Flow_altreview_to_altrecord</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_altreview_to_altrecord" sourceRef="Task_AltReview" targetRef="Task_AltRecord" />
+    <bpmn:serviceTask id="Task_AltRecord" name="Record decision">
+      <bpmn:incoming>Flow_altreview_to_altrecord</bpmn:incoming>
+      <bpmn:outgoing>Flow_altrecord_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_altrecord_to_end" sourceRef="Task_AltRecord" targetRef="End_Reviewed" />
+    <bpmn:endEvent id="End_Reviewed" name="Request reviewed">
+      <bpmn:incoming>Flow_altrecord_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_BranchEntryElbow">
+    <bpmndi:BPMNPlane id="BPMNPlane_BranchEntryElbow" bpmnElement="Process_BranchEntryElbow" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

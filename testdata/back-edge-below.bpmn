@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_BackEdgeBelow" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_BackEdgeBelow" name="Back edge below" isExecutable="true">
+    <bpmn:documentation>Rule E fixture: a back edge exits its source's BOTTOM, drops to a dedicated
+line in the gap below the LOWER of the two rows, runs backward and rises into
+the target's BOTTOM.
+
+Shape: Start -&gt; Enter data -&gt; Validate -&gt; Gateway_Valid -&gt; Store -&gt; End (happy
+path). The "invalid" branch is a single rework task on the tier below the
+spine; its only outgoing flow loops back to Enter data, an earlier node on
+the spine.
+
+Source and target sit on DIFFERENT rows (rework on row 1, target on row 0),
+so the fixture pins down "below the LOWER of the two rows" rather than the
+degenerate same-row case.
+
+Exercises:
+  - the loop's horizontal run lies strictly below the source row's shapes,
+  - the first waypoint is the source's bottom edge,
+  - the last waypoint is the target's bottom edge.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Rework" name="Form opened">
+      <bpmn:outgoing>Flow_start_to_enter</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_enter" sourceRef="Start_Rework" targetRef="Task_EnterData" />
+    <bpmn:userTask id="Task_EnterData" name="Enter data">
+      <bpmn:incoming>Flow_start_to_enter</bpmn:incoming>
+      <bpmn:incoming>Flow_correct_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_enter_to_validate</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_enter_to_validate" sourceRef="Task_EnterData" targetRef="Task_Validate" />
+    <bpmn:serviceTask id="Task_Validate" name="Validate data">
+      <bpmn:incoming>Flow_enter_to_validate</bpmn:incoming>
+      <bpmn:outgoing>Flow_validate_to_gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_validate_to_gateway" sourceRef="Task_Validate" targetRef="Gateway_Valid" />
+    <bpmn:exclusiveGateway id="Gateway_Valid" name="Valid?">
+      <bpmn:incoming>Flow_validate_to_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_valid_yes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_valid_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_valid_yes" name="yes" sourceRef="Gateway_Valid" targetRef="Task_Store" />
+    <bpmn:sequenceFlow id="Flow_valid_no" name="no" sourceRef="Gateway_Valid" targetRef="Task_Correct" />
+    <bpmn:serviceTask id="Task_Store" name="Store record">
+      <bpmn:incoming>Flow_valid_yes</bpmn:incoming>
+      <bpmn:outgoing>Flow_store_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_store_to_end" sourceRef="Task_Store" targetRef="End_Stored" />
+    <bpmn:endEvent id="End_Stored" name="Record stored">
+      <bpmn:incoming>Flow_store_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_Correct" name="Correct data">
+      <bpmn:incoming>Flow_valid_no</bpmn:incoming>
+      <bpmn:outgoing>Flow_correct_back</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_correct_back" sourceRef="Task_Correct" targetRef="Task_EnterData" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_BackEdgeBelow">
+    <bpmndi:BPMNPlane id="BPMNPlane_BackEdgeBelow" bpmnElement="Process_BackEdgeBelow" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
