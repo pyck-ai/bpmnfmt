@@ -64,6 +64,7 @@ func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSi
 			EdgeLabels: map[string]Rect{},
 			Edges:      map[string][]Point{},
 			Retrograde: map[string]bool{},
+			Merged:     map[string]string{},
 		},
 	}
 	var err error

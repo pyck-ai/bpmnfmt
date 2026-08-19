@@ -50,10 +50,21 @@ func TestProbeSites(t *testing.T) {
 			}
 		}
 		sort.Strings(ids)
+		// A DECLARED merge (rule M2) is the one legitimate way for two
+		// edges to share a terminal point: the layouter said so, and
+		// Validate checks the follower really lies on its trunk. Anything
+		// else sharing an endpoint is the pileup bug and must still report.
+		declaredMerge := func(a, b string) bool {
+			return res.Merged[a] == b || res.Merged[b] == a ||
+				(res.Merged[a] != "" && res.Merged[a] == res.Merged[b])
+		}
 		for i, a := range ids {
 			pa := res.Edges[a]
 			enda := pa[len(pa)-1]
 			for _, b := range ids[i+1:] {
+				if declaredMerge(a, b) {
+					continue
+				}
 				pb := res.Edges[b]
 				endb := pb[len(pb)-1]
 				if math.Abs(enda.X-endb.X) < 0.5 && math.Abs(enda.Y-endb.Y) < 0.5 {
@@ -79,21 +90,16 @@ func TestProbeSites(t *testing.T) {
 			}
 		}
 		// Shared collinear run: legal when it is a prefix of BOTH (one
-		// trunk), and legal for two flows of one rejoin bundle — rule L6
-		// puts them on a single lane on purpose, so the shared run IS the
-		// single line the reader is meant to see. Their risers still have
-		// to differ, which the H check above enforces.
-		target := map[string]string{}
-		for _, sc := range scopeList(p) {
-			for _, fl := range sc.Flows {
-				target[fl.ID] = fl.TargetRef
-			}
-		}
+		// trunk), and legal for two members of a DECLARED rejoin bundle —
+		// rules L6/M2 put them on one lane and one riser on purpose, so the
+		// shared run IS the single line the reader is meant to see. Keying
+		// on the declaration rather than "same target node" keeps two
+		// unrelated inflows to one gateway reportable.
 		for i, a := range ids {
 			pa := res.Edges[a]
 			for _, b := range ids[i+1:] {
-				if target[a] != "" && target[a] == target[b] {
-					continue // one rejoin bundle, one lane
+				if declaredMerge(a, b) {
+					continue
 				}
 				pb := res.Edges[b]
 				for x := 0; x+1 < len(pa); x++ {

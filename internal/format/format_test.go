@@ -761,20 +761,72 @@ func TestRejoinBundleShareLane(t *testing.T) {
 		}
 	}
 
-	// Three distinct risers, all landing on G_Join's bottom face.
+	// ONE riser, in the target's own column, and one arrowhead: every arc
+	// ends at the identical point on G_Join's bottom CORNER. Offset 0 means
+	// no stub, so this is the corner itself and not a point on a face.
 	join := lay.Shapes["G_Join"]
-	maxOff := join.W/2 - 4
 	for i, x := range riser {
-		if d := math.Abs(x - join.CX()); d > maxOff+0.5 {
-			t.Errorf("%s rises at x=%.0f, outside G_Join's bottom face (cx=%.0f, half=%.0f)",
-				arcs[i], x, join.CX(), maxOff)
+		if math.Abs(x-join.CX()) > 0.5 {
+			t.Errorf("%s rises at x=%.0f, not in G_Join's own column (cx=%.0f): "+
+				"a bundle enters as one arrow", arcs[i], x, join.CX())
 		}
-		for j := i + 1; j < len(riser); j++ {
-			if math.Abs(x-riser[j]) < 0.5 {
-				t.Errorf("%s and %s rise in the same column (x=%.0f): arrowheads would stack",
-					arcs[i], arcs[j], x)
+	}
+	want := lay.Edges[arcs[0]][len(lay.Edges[arcs[0]])-1]
+	if math.Abs(want.X-join.CX()) > 0.5 || math.Abs(want.Y-join.Bottom()) > 0.5 {
+		t.Errorf("the bundle must land on G_Join's bottom corner (got %v, want %.0f,%.0f)",
+			want, join.CX(), join.Bottom())
+	}
+	for _, id := range arcs[1:] {
+		pts := lay.Edges[id]
+		if last := pts[len(pts)-1]; math.Abs(last.X-want.X) > 0.5 || math.Abs(last.Y-want.Y) > 0.5 {
+			t.Errorf("%s ends at %v, not on the bundle's shared point %v", id, last, want)
+		}
+	}
+
+	// The merge is declared, and declared exactly once per follower.
+	if len(lay.Merged) != 2 {
+		t.Errorf("Merged should hold the 2 followers, got %d: %v", len(lay.Merged), lay.Merged)
+	}
+	for _, id := range arcs[1:] {
+		if lay.Merged[id] != arcs[0] {
+			t.Errorf("%s should be declared merged into %s, got %q", id, arcs[0], lay.Merged[id])
+		}
+	}
+}
+
+// TestAccidentalPileupStillFails is M2's load-bearing negative control. Two
+// INDEPENDENT inflows sharing a terminal point is the round-0 pileup bug;
+// only a DECLARED merge may share one. A geometric test — "collinear final
+// run, so it must be deliberate" — would have excused that very bug, since
+// process.joining-flows' two inflows were already collinear over their last
+// 25px before it was fixed.
+func TestAccidentalPileupStillFails(t *testing.T) {
+	for _, name := range fixtureNames {
+		t.Run(name, func(t *testing.T) {
+			p, _, lay := layoutOf(t, name)
+			var ids []string
+			for _, fl := range p.Flows {
+				if len(lay.Edges[fl.ID]) > 0 {
+					ids = append(ids, fl.ID)
+				}
 			}
-		}
+			sort.Strings(ids)
+			for i, a := range ids {
+				pa := lay.Edges[a]
+				for _, b := range ids[i+1:] {
+					// The exemption is the DECLARATION, nothing else.
+					if lay.Merged[a] == b || lay.Merged[b] == a ||
+						(lay.Merged[a] != "" && lay.Merged[a] == lay.Merged[b]) {
+						continue
+					}
+					pb := lay.Edges[b]
+					ea, eb := pa[len(pa)-1], pb[len(pb)-1]
+					if math.Abs(ea.X-eb.X) < 0.5 && math.Abs(ea.Y-eb.Y) < 0.5 {
+						t.Errorf("%s and %s pile up on %v without a declared merge", a, b, ea)
+					}
+				}
+			}
+		})
 	}
 }
 
