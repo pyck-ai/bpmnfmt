@@ -18,7 +18,7 @@ var probeFixtures = []string{
 	"below-stack-order.bpmn", "branch-entry-elbow.bpmn", "back-edge-below.bpmn",
 	"lifted-subtree.bpmn", "split-last-in-chain.bpmn", "corridor-row-ranges.bpmn",
 	"lift-only-terminal.bpmn", "cross-link-adjacent.bpmn",
-	"gateway-cluster-columns.bpmn",
+	"gateway-cluster-columns.bpmn", "rejoin-bundle-lane.bpmn",
 }
 
 func probeLayout(t *testing.T, name string) (*model.Process, *Result) {
@@ -77,10 +77,23 @@ func TestProbeSites(t *testing.T) {
 				}
 			}
 		}
-		// Shared collinear run: legal only when it is a prefix of BOTH.
+		// Shared collinear run: legal when it is a prefix of BOTH (one
+		// trunk), and legal for two flows of one rejoin bundle — rule L6
+		// puts them on a single lane on purpose, so the shared run IS the
+		// single line the reader is meant to see. Their risers still have
+		// to differ, which the H check above enforces.
+		target := map[string]string{}
+		for _, sc := range scopeList(p) {
+			for _, fl := range sc.Flows {
+				target[fl.ID] = fl.TargetRef
+			}
+		}
 		for i, a := range ids {
 			pa := res.Edges[a]
 			for _, b := range ids[i+1:] {
+				if target[a] != "" && target[a] == target[b] {
+					continue // one rejoin bundle, one lane
+				}
 				pb := res.Edges[b]
 				for x := 0; x+1 < len(pa); x++ {
 					for y := 0; y+1 < len(pb); y++ {

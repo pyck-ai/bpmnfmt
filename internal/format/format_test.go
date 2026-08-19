@@ -31,6 +31,7 @@ var fixtureNames = []string{
 	"lift-only-terminal.bpmn",
 	"cross-link-adjacent.bpmn",
 	"gateway-cluster-columns.bpmn",
+	"rejoin-bundle-lane.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -497,6 +498,58 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 	for _, pt := range back {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
+		}
+	}
+}
+
+// TestRejoinBundleShareLane: rule L6. Runs in one gap that end at the same
+// target and rise into it are one bundle: they share a lane, so what the
+// reader sees is a single line under the row with short risers peeling off
+// at the target's face, not a staircase of near-identical arcs.
+func TestRejoinBundleShareLane(t *testing.T) {
+	_, _, lay := layoutOf(t, "rejoin-bundle-lane.bpmn")
+	arcs := []string{"Flow_g1_join", "Flow_g2_join", "Flow_g3_join"}
+
+	// The long run of each arc sits at one shared y.
+	var laneY []float64
+	var riser []float64
+	for _, id := range arcs {
+		pts := lay.Edges[id]
+		if len(pts) != 4 {
+			t.Fatalf("%s should be a 4-point under-row arc, got %v", id, pts)
+		}
+		best, y, x := 0.0, 0.0, 0.0
+		for i := 0; i+1 < len(pts); i++ {
+			if math.Abs(pts[i].Y-pts[i+1].Y) > 0.5 {
+				continue
+			}
+			if w := math.Abs(pts[i+1].X - pts[i].X); w > best {
+				best, y, x = w, pts[i].Y, pts[i+1].X
+			}
+		}
+		laneY = append(laneY, y)
+		riser = append(riser, x)
+	}
+	for i := 1; i < len(laneY); i++ {
+		if math.Abs(laneY[i]-laneY[0]) > 0.5 {
+			t.Errorf("%s runs at y=%.0f but %s runs at y=%.0f: one bundle, one lane",
+				arcs[i], laneY[i], arcs[0], laneY[0])
+		}
+	}
+
+	// Three distinct risers, all landing on G_Join's bottom face.
+	join := lay.Shapes["G_Join"]
+	maxOff := join.W/2 - 4
+	for i, x := range riser {
+		if d := math.Abs(x - join.CX()); d > maxOff+0.5 {
+			t.Errorf("%s rises at x=%.0f, outside G_Join's bottom face (cx=%.0f, half=%.0f)",
+				arcs[i], x, join.CX(), maxOff)
+		}
+		for j := i + 1; j < len(riser); j++ {
+			if math.Abs(x-riser[j]) < 0.5 {
+				t.Errorf("%s and %s rise in the same column (x=%.0f): arrowheads would stack",
+					arcs[i], arcs[j], x)
+			}
 		}
 	}
 }
