@@ -17,7 +17,7 @@ var probeFixtures = []string{
 	"picking-subprocess.bpmn", "split-three-corners.bpmn", "split-four-below.bpmn",
 	"below-stack-order.bpmn", "branch-entry-elbow.bpmn", "back-edge-below.bpmn",
 	"lifted-subtree.bpmn", "split-last-in-chain.bpmn", "corridor-row-ranges.bpmn",
-	"lift-only-terminal.bpmn",
+	"lift-only-terminal.bpmn", "cross-link-adjacent.bpmn",
 }
 
 func probeLayout(t *testing.T, name string) (*model.Process, *Result) {
