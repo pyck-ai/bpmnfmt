@@ -36,6 +36,7 @@ var fixtureNames = []string{
 	"rejoin-right-then-up.bpmn",
 	"loop-branch-backwards.bpmn",
 	"sky-over-the-spine.bpmn",
+	"rejoin-riser-depth.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -492,6 +493,45 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
+	}
+}
+
+// TestRejoinRiserDepth: rule M4. Several rejoins into one target's bottom
+// face step right with the depth of their source row — the shallowest turns
+// up leftmost. A riser from a deeper row would otherwise cut the horizontal
+// approach of every shallower one, which is a forbidden crossing no rule
+// permits. Asserted by ROW, not by branch name: which alternate lands on
+// which tier is rule C's business (longest-first), not M4's.
+func TestRejoinRiserDepth(t *testing.T) {
+	_, _, lay := layoutOf(t, "rejoin-riser-depth.bpmn")
+	join := lay.Shapes["G_Join"]
+
+	// Riser column and source row of each rejoin into G_Join's bottom.
+	type riser struct {
+		id string
+		x  float64
+		cy float64
+	}
+	var risers []riser
+	for _, id := range []string{"Flow_near_join", "Flow_far2_join"} {
+		pts := lay.Edges[id]
+		if len(pts) != 3 {
+			t.Fatalf("%s should be a 3-point right-then-up elbow, got %v", id, pts)
+		}
+		if d := math.Abs(pts[2].X - join.CX()); d > join.W/2-4+0.5 {
+			t.Errorf("%s must land on G_Join's bottom face (x=%.0f, cx=%.0f)",
+				id, pts[2].X, join.CX())
+		}
+		risers = append(risers, riser{id, pts[1].X, pts[0].Y})
+	}
+	shallow, deep := risers[0], risers[1]
+	if shallow.cy > deep.cy {
+		shallow, deep = deep, shallow
+	}
+	if deep.x <= shallow.x {
+		t.Errorf("the deeper rejoin %s (row y=%.0f) must turn up right of the shallower %s "+
+			"(row y=%.0f): got x=%.0f vs %.0f", deep.id, deep.cy, shallow.id, shallow.cy,
+			deep.x, shallow.x)
 	}
 }
 

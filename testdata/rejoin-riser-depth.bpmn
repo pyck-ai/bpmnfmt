@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_RejoinRiserDepth" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_RejoinRiserDepth" name="Rejoin riser depth" isExecutable="true">
+    <bpmn:documentation>Rule M4 fixture: when several rejoins from different rows enter one
+target's bottom face, the one from the SHALLOWEST row turns up in the
+leftmost column and each deeper one steps a slot further right.
+
+Shape: Start -&gt; Prepare -&gt; G_Split -&gt; Main -&gt; G_Join -&gt; End on the
+spine, with two alternates rejoining G_Join from two different tiers.
+
+Every rejoin approaches its target from the left along its own row, so a
+riser coming from a deeper row crosses the horizontal approach of every
+shallower one unless it turns up further right than they do. Before M4 the
+order was left to the order the flows happened to be declared in, and
+scenario.issue-32 came out with the deeper riser in the SMALLER column,
+cutting the shallower approach — one forbidden crossing that no rule
+permitted.
+
+Both tails are activities with a single forward flow, so rule L1 de-aligns
+both and both rejoin right-then-up: the only thing separating their risers
+is the depth rank.
+
+Exercises:
+  - the deeper tier's riser column is strictly right of the shallower
+    tier's,
+  - both land on G_Join's bottom face,
+  - the diagram has no crossings.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Riser" name="Request filed">
+      <bpmn:outgoing>Flow_start_prepare</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_prepare" sourceRef="Start_Riser" targetRef="Task_Prepare" />
+    <bpmn:serviceTask id="Task_Prepare" name="Prepare request">
+      <bpmn:incoming>Flow_start_prepare</bpmn:incoming>
+      <bpmn:outgoing>Flow_prepare_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_prepare_split" sourceRef="Task_Prepare" targetRef="G_Split" />
+    <bpmn:exclusiveGateway id="G_Split" name="Which lane?">
+      <bpmn:incoming>Flow_prepare_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_split_main</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_near</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_far</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_split_main" name="standard" sourceRef="G_Split" targetRef="Task_Main" />
+    <bpmn:serviceTask id="Task_Main" name="Process request">
+      <bpmn:incoming>Flow_split_main</bpmn:incoming>
+      <bpmn:outgoing>Flow_main_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_main_join" sourceRef="Task_Main" targetRef="G_Join" />
+    <bpmn:exclusiveGateway id="G_Join" name="Handled">
+      <bpmn:incoming>Flow_main_join</bpmn:incoming>
+      <bpmn:incoming>Flow_near_join</bpmn:incoming>
+      <bpmn:incoming>Flow_far2_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_join_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_join_end" sourceRef="G_Join" targetRef="End_Riser" />
+    <bpmn:endEvent id="End_Riser" name="Request handled">
+      <bpmn:incoming>Flow_join_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_split_near" name="quick" sourceRef="G_Split" targetRef="Task_Near" />
+    <bpmn:serviceTask id="Task_Near" name="Quick check">
+      <bpmn:incoming>Flow_split_near</bpmn:incoming>
+      <bpmn:outgoing>Flow_near_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_near_join" sourceRef="Task_Near" targetRef="G_Join" />
+    <bpmn:sequenceFlow id="Flow_split_far" name="full" sourceRef="G_Split" targetRef="Task_Far1" />
+    <bpmn:serviceTask id="Task_Far1" name="Collect evidence">
+      <bpmn:incoming>Flow_split_far</bpmn:incoming>
+      <bpmn:outgoing>Flow_far1_far2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_far1_far2" sourceRef="Task_Far1" targetRef="Task_Far2" />
+    <bpmn:serviceTask id="Task_Far2" name="Full review">
+      <bpmn:incoming>Flow_far1_far2</bpmn:incoming>
+      <bpmn:outgoing>Flow_far2_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_far2_join" sourceRef="Task_Far2" targetRef="G_Join" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_RejoinRiserDepth">
+    <bpmndi:BPMNPlane id="BPMNPlane_RejoinRiserDepth" bpmnElement="Process_RejoinRiserDepth" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

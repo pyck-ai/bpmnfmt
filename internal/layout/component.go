@@ -38,6 +38,7 @@ type compLayout struct {
 	sides     map[sideKey][]*docking
 	marginUse int
 	skyEdge   map[string]bool // same-row detours arching over their row (M3)
+	riserRank map[string]int  // "target/row" -> slots right of the target's column (M4)
 
 	// Vertical geometry, filled by materializeY.
 	rowCY    []float64
@@ -54,12 +55,13 @@ type compLayout struct {
 func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSize map[string]Size) (*Result, error) {
 	cl := &compLayout{
 		p: p, g: g, c: c,
-		subSize:  subSize,
-		x:        map[string]float64{},
-		rowOf:    map[string]int{},
-		planByID: map[string]*edgePlan{},
-		sides:    map[sideKey][]*docking{},
-		skyEdge:  map[string]bool{},
+		subSize:   subSize,
+		x:         map[string]float64{},
+		rowOf:     map[string]int{},
+		planByID:  map[string]*edgePlan{},
+		sides:     map[sideKey][]*docking{},
+		skyEdge:   map[string]bool{},
+		riserRank: map[string]int{},
 		res: &Result{
 			Shapes:     map[string]Rect{},
 			Labels:     map[string]Rect{},
