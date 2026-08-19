@@ -1,7 +1,23 @@
 # bpmnfmt
 
-gofmt for BPMN: lints process models for logical errors and rewrites the
-diagram section (BPMN DI) with a canonical, human-readable layout.
+gofmt for BPMN. Lints process models for logical errors and rewrites the
+diagram section (BPMN DI) with a canonical, human-readable layout. The
+process logic is never touched — only how it looks.
+
+**Before** — as modeled by hand:
+
+![tour-creation before formatting](docs/img/tour-creation-before.png)
+
+**After** — `bpmnfmt -w tour-creation.bpmn`:
+
+![tour-creation after formatting](docs/img/tour-creation-after.png)
+
+One straight line of work, left to right. The batch loop reads forward on
+the spine, its way-back line runs below, the exit rises to the end event.
+Deterministic and idempotent: the same model always renders the same
+diagram, and formatting a formatted file changes nothing.
+
+## Install
 
 ```
 go install github.com/pyck-ai/bpmnfmt/cmd/bpmnfmt@latest
@@ -14,34 +30,22 @@ bpmnfmt file.bpmn            # formatted file to stdout (or stdin -> stdout)
 bpmnfmt -w *.bpmn            # rewrite files in place
 bpmnfmt -l *.bpmn            # list files whose layout differs (CI)
 bpmnfmt -d file.bpmn         # unified diff
-bpmnfmt -check *.bpmn        # lint only
-   -json                     # findings as JSON
-   -fail-on error|warning|info
-   -force                    # format despite lint errors
-   -happy-end ID             # end event the happy path must reach
-   -happy-flow ID,ID         # flows preferred at gateway splits
+bpmnfmt -check *.bpmn        # lint only, write nothing
 ```
+
+Flags:
+
+| Flag | Effect |
+|------|--------|
+| `-json` | print findings as JSON |
+| `-fail-on error\|warning\|info` | severity threshold for exit code 1 (default `error`) |
+| `-force` | format even when lint reports errors |
+| `-happy-end ID` | end event the happy path must reach |
+| `-happy-flow ID,ID` | sequence flows preferred at gateway splits |
+| `-version` | print version and exit |
 
 Exit codes: `0` clean · `1` findings above threshold / differences found ·
 `2` usage or parse error.
-
-## Use as a library
-
-The module root exposes a stable embedding API (e.g. for a `pyck bpmn fmt`
-subcommand); the `internal/` packages are implementation detail.
-
-```go
-import "github.com/pyck-ai/bpmnfmt"
-
-src, _ := os.ReadFile("flow.bpmn")
-
-findings, err := bpmnfmt.Check(src, "flow.bpmn")          // lint only
-
-res, err := bpmnfmt.Format(src, "flow.bpmn", bpmnfmt.Options{})
-if res.Formatted {                                        // false on lint errors
-    _ = os.WriteFile("flow.bpmn", res.Output, 0o644)
-}
-```
 
 ## What it guarantees
 
@@ -50,39 +54,46 @@ XML comments, attribute order, documentation, whitespace — survives
 untouched. Shape colors (`bioc:`/`color:`) are carried over. Output is
 deterministic and idempotent.
 
+The layouter validates its own output on every run: no overlapping
+shapes, no edge through a shape, no leftward forward flows, a straight
+spine, and zero forbidden edge crossings.
+
 ## Layout rules
 
-1. **Happy path on one row, left to right.** Selected by following the
-   first-declared forward flow at each split (backtracking to reach an end
-   event); override with `-happy-end` / `-happy-flow`. Both options apply to
-   the top-level process only — they are silently ignored inside expanded
-   embedded sub-processes.
+1. **Happy path on one row, left to right.** The spine is chosen per
+   split, in order of precedence: flows named by `-happy-flow` /
+   `-happy-end`; the branch that feeds a loop back to this gateway (loops
+   read forward, see rule 3); the branch that reaches an end event; the
+   first-declared flow. Overrides apply to the top-level process only —
+   they are silently ignored inside expanded sub-processes.
 2. **Grid.** Node centers snap to a 160px column grid and shared row
    centerlines — elements line up horizontally and vertically.
-3. **Branches use the gateway's corners.** A spine gateway with exactly
+3. **Loops read forward.** At a gateway that a loop returns to, the loop
+   body *is* the main line: it continues straight through the diamond, the
+   way-back line returns below, and the loop's exit rises out of the top
+   corner. The work stays on one row; leaving the loop is the detour.
+4. **Branches use the gateway's corners.** A spine gateway with exactly
    three outgoing flows uses all three corners of the diamond: the happy
-   path runs straight through, the shorter alternate leaves the top corner,
-   the longer the bottom (a branch that loops back never goes up). With
-   four or more outgoing flows the top corner stays unused and every
+   path runs straight through, the shorter alternate leaves the top
+   corner, the longer the bottom (a branch that loops back never goes up).
+   With four or more outgoing flows the top corner stays unused and every
    alternate hangs below, stacked longest-first. Entry edges drop in the
    gateway's own column and turn once into the branch head's left side;
-   branch heads align with the happy successor's column. Gateways inside a
-   branch always stack their alternates below.
-4. **Straight rejoins.** Branch tails align under their merge target and
+   branch heads align with the happy successor's column. Gateways inside
+   a branch always stack their alternates below.
+5. **Straight rejoins.** Branch tails align under their merge target and
    rise vertically into its bottom edge.
-5. **Way-back lines.** Every back edge leaves its source's bottom, drops
-   to a dedicated horizontal line directly below the lower of the two rows,
-   runs backward, and rises into the target's bottom. Crossings are allowed
-   on these lines (and only there); multiple loops get stacked lines, wider
-   ones nesting outside narrower ones.
-6. **Orthogonal edges**, few bends, dockings spread per node side.
-7. **Annotations**: short notes sit in a band directly above their anchor;
+6. **Way-back lines.** Every back edge leaves its source's bottom, drops
+   to a dedicated horizontal line directly below the lower of the two
+   rows, runs backward, and rises into the target's bottom. Crossings are
+   allowed on these lines (and only there); multiple loops get stacked
+   lines, wider ones nesting outside narrower ones.
+7. **Orthogonal edges, few bends.** Dockings spread out per node side, and
+   edges arriving at a gateway land on the diamond's slanted face at their
+   own offset — arrowheads never pile onto one point.
+8. **Annotations.** Short notes sit in a band directly above their anchor;
    prose notes are parked above or below the diagram with a short, clear
    association line.
-
-The layouter validates its own output: no overlaps, no edge through a
-shape, no leftward forward flows, straight spine, zero forbidden edge crossings on
-the test corpus.
 
 ## Lint rules
 
@@ -104,6 +115,27 @@ the test corpus.
 
 Lint errors block formatting (`-force` overrides).
 
+## Use as a library
+
+The module root exposes a stable embedding API (e.g. for a `pyck bpmn fmt`
+subcommand); the `internal/` packages are implementation detail.
+
+```go
+import "github.com/pyck-ai/bpmnfmt"
+
+src, _ := os.ReadFile("flow.bpmn")
+
+findings, err := bpmnfmt.Check(src, "flow.bpmn")          // lint only
+
+res, err := bpmnfmt.Format(src, "flow.bpmn", bpmnfmt.Options{})
+if res.Formatted {                                        // false on lint errors
+    _ = os.WriteFile("flow.bpmn", res.Output, 0o644)
+}
+```
+
+`Options` mirrors the CLI: `Force`, `HappyEnd`, `HappyFlows`. `Result`
+carries `Findings` (always populated), `Output`, and `Formatted`.
+
 ## Scope
 
 Targets straight-through process models: events (plain, timer, signal,
@@ -117,10 +149,11 @@ gateways are detected and rejected with E7.
 ## Development
 
 ```
-go test ./...                                  # includes layout invariants + goldens
+go test ./...                                       # layout invariants + goldens
 go test ./internal/format -run TestGolden -update   # refresh golden files
-python3 -m http.server 8077                    # then open hack/viewer/?f=testdata/x.bpmn
+python3 -m http.server 8077                         # then open hack/viewer/?f=testdata/x.bpmn
 ```
 
 The files under `testdata/` are anonymized real-world fixtures;
-`testdata/golden/` pins their formatted output byte for byte.
+`testdata/golden/` pins their formatted output byte for byte. Every layout
+rule above has a discriminating fixture that fails if the rule regresses.
