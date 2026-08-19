@@ -19,7 +19,9 @@ type chain struct {
 	exitFlow   string // flow nodes[last] -> mergeNode
 	depth      int    // 0 = spine
 	isRoot     bool   // secondary start inflow (fans into mergeNode's left side)
-	row        int    // assigned tier (row index), spine = 0
+	row        int    // assigned tier (row index); the spine's row is 0 unless above-branches push it down
+	weight     int    // node count of this chain plus its whole subtree
+	lifted     bool   // routed above its parent instead of below
 }
 
 // decompose splits a component into chains. Every node lands in exactly one
@@ -117,7 +119,118 @@ func decompose(g *graph.Graph, c *graph.Component) ([]*chain, map[string]int, er
 			return nil, nil, fmt.Errorf("node %s not assigned to a chain", n.ID)
 		}
 	}
+	computeWeights(chains)
+	markLifted(g, c, chains)
 	return chains, chainOf, nil
+}
+
+// childrenOf groups chain indices by their parent, preserving chain order
+// (which is creation order, i.e. declaration order per split).
+func childrenOf(chains []*chain) map[int][]int {
+	kids := map[int][]int{}
+	for _, ch := range chains {
+		if ch.parent >= 0 {
+			kids[ch.parent] = append(kids[ch.parent], ch.idx)
+		}
+	}
+	return kids
+}
+
+// computeWeights fills chain.weight: the chain's own node count plus the
+// weight of every descendant. Children are always created after their
+// parent, so a reverse pass over the slice is a valid post-order.
+func computeWeights(chains []*chain) {
+	for _, ch := range chains {
+		ch.weight = len(ch.nodes)
+	}
+	for i := len(chains) - 1; i >= 1; i-- {
+		ch := chains[i]
+		if ch.parent >= 0 {
+			chains[ch.parent].weight += ch.weight
+		}
+	}
+}
+
+// subtreeHasBackSource reports whether any node in the chain's subtree is
+// the source of a back edge. Such branches are never lifted: rule e keeps
+// loop lanes below the source's row, which a lifted branch would violate.
+func subtreeHasBackSource(g *graph.Graph, chains []*chain, kids map[int][]int, idx int) bool {
+	stack := []int{idx}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, id := range chains[i].nodes {
+			for _, fl := range g.Out[id] {
+				if g.Back[fl.ID] {
+					return true
+				}
+			}
+		}
+		stack = append(stack, kids[i]...)
+	}
+	return false
+}
+
+// shorter is the total order deciding which of two eligible alternates is
+// lifted: smaller subtree weight, then fewer own nodes, then the
+// later-declared entry flow. Chain order is declaration order, so a larger
+// index means later-declared.
+func shorter(a, b *chain) bool {
+	if a.weight != b.weight {
+		return a.weight < b.weight
+	}
+	if len(a.nodes) != len(b.nodes) {
+		return len(a.nodes) < len(b.nodes)
+	}
+	return a.idx > b.idx
+}
+
+// markLifted decides, per split node, whether one alternate is routed above
+// the spine. A branch is lifted only when its split sits on the spine, has
+// exactly three forward outgoing flows and exactly two child chains, the
+// branch's subtree contains no back-edge source, and it is the shorter of
+// the two alternates.
+func markLifted(g *graph.Graph, c *graph.Component, chains []*chain) {
+	kids := childrenOf(chains)
+
+	// Group the child chains by the node they split from, in chain order.
+	bySplit := map[string][]int{}
+	var splitOrder []string
+	for _, ch := range chains {
+		if ch.parent < 0 || ch.isRoot || ch.parentNode == "" {
+			continue
+		}
+		if _, seen := bySplit[ch.parentNode]; !seen {
+			splitOrder = append(splitOrder, ch.parentNode)
+		}
+		bySplit[ch.parentNode] = append(bySplit[ch.parentNode], ch.idx)
+	}
+
+	for _, node := range splitOrder {
+		alts := bySplit[node]
+		if !c.SpineSet[node] { // (1) nested gateways never lift
+			continue
+		}
+		if len(g.ForwardOut(node)) != 3 { // (2) exactly a three-way split
+			continue
+		}
+		if len(alts) != 2 { // (3) exactly two alternates hang off it
+			continue
+		}
+		// (5) pick the shorter alternate first, then test it: every rule
+		// must hold for the branch that is actually lifted, so a
+		// disqualifying back edge in the shorter one lifts nothing rather
+		// than promoting the longer one.
+		a, b := chains[alts[0]], chains[alts[1]]
+		best := a
+		if shorter(b, a) {
+			best = b
+		}
+		if subtreeHasBackSource(g, chains, kids, best.idx) { // (4) no loop sources
+			continue
+		}
+		best.lifted = true
+	}
 }
 
 // flowEndpointsRow classifies every sequence flow of the component relative

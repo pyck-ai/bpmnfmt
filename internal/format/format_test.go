@@ -21,6 +21,19 @@ var fixtureNames = []string{
 	"picking-subprocess.bpmn",
 }
 
+// fixtureOpts holds the formatting options a fixture is exercised with.
+// Fixtures that are absent use the zero Options.
+var fixtureOpts = map[string]Options{}
+
+func optsFor(name string) Options { return fixtureOpts[name] }
+
+// graphOpts mirrors the layout-relevant part of optsFor for tests that build
+// the graph themselves.
+func graphOpts(name string) graph.Options {
+	o := optsFor(name)
+	return graph.Options{HappyEnd: o.HappyEnd, HappyFlows: o.HappyFlows}
+}
+
 func fixture(t *testing.T, name string) *model.File {
 	t.Helper()
 	f, err := model.ParseFile(filepath.Join("..", "..", "testdata", name))
@@ -30,15 +43,16 @@ func fixture(t *testing.T, name string) *model.File {
 	return f
 }
 
-// maxCrossings: ideal is 0 everywhere; tour-execution may keep a small
-// budget while the router is tuned.
+// maxCrossings: budget for FORBIDDEN crossings (pairs not involving a
+// way-back edge; crossings on way-back lines are allowed by design). Zero
+// everywhere.
 var maxCrossings = map[string]int{}
 
 func TestFormatFixtures(t *testing.T) {
 	for _, name := range fixtureNames {
 		t.Run(name, func(t *testing.T) {
 			f := fixture(t, name)
-			res, err := File(f, Options{})
+			res, err := File(f, optsFor(name))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +73,7 @@ func TestFormatFixtures(t *testing.T) {
 
 			// 3. Layout invariants.
 			p := f.Processes[0]
-			g := graph.Build(p)
+			g := graph.BuildOpts(p, graphOpts(name))
 			lay, err := layout.Compute(p, g)
 			if err != nil {
 				t.Fatal(err)
@@ -68,7 +82,7 @@ func TestFormatFixtures(t *testing.T) {
 				t.Errorf("invariant: %s", v)
 			}
 			if got, allowed := layout.CountCrossings(p, lay), maxCrossings[name]; got > allowed {
-				t.Errorf("crossings = %d, allowed %d", got, allowed)
+				t.Errorf("forbidden crossings = %d, allowed %d", got, allowed)
 			}
 
 			// 4. Completeness: no missing/orphaned DI findings on the output.
@@ -79,7 +93,7 @@ func TestFormatFixtures(t *testing.T) {
 			}
 
 			// 5. Idempotency: formatting the output reproduces it exactly.
-			res2, err := File(out, Options{})
+			res2, err := File(out, optsFor(name))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +102,7 @@ func TestFormatFixtures(t *testing.T) {
 			}
 
 			// 6. Determinism: a fresh run over the input is byte-identical.
-			res3, err := File(fixture(t, name), Options{})
+			res3, err := File(fixture(t, name), optsFor(name))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -182,8 +196,9 @@ func stripDI(t *testing.T, f *model.File) []byte {
 }
 
 // TestTourExecutionAcceptance encodes the reference layout description:
-// spine on one row, branch tiers below, loops above the spine or under their
-// tier, annotations above their anchors.
+// spine on one row, branch tiers below, way-back edges on dedicated lines
+// below their rows entering the target's bottom, annotations above their
+// anchors.
 func TestTourExecutionAcceptance(t *testing.T) {
 	f := fixture(t, "tour-execution.bpmn")
 	p := f.Processes[0]
@@ -233,18 +248,22 @@ func TestTourExecutionAcceptance(t *testing.T) {
 		t.Errorf("Confirmed? not aligned under Scan box (dx=%.0f)", d)
 	}
 
-	// The pick loop arcs above the spine row.
+	// The pick loop runs on a way-back line below the spine row and rises
+	// into its target's bottom; nothing of it goes above the spine.
 	loop := lay.Edges["Flow_0tcw3fm"]
 	if len(loop) == 0 {
 		t.Fatal("pick loop has no waypoints")
 	}
-	minY := loop[0].Y
+	tgt := lay.Shapes["Activity_1b1t68m"]
 	for _, pt := range loop {
-		if pt.Y < minY {
-			minY = pt.Y
+		if pt.Y < spineY-layout.RowH/2 {
+			t.Errorf("pick loop must stay below the spine's top (y=%.0f)", pt.Y)
 		}
 	}
-	if minY >= spineY-layout.RowH/2 {
-		t.Errorf("pick loop should arc above the spine row (minY=%.0f, rowTop=%.0f)", minY, spineY-layout.RowH/2)
+	if last := loop[len(loop)-1]; last.Y != tgt.Bottom() {
+		t.Errorf("pick loop should enter the target's bottom (y=%.0f, want %.0f)", last.Y, tgt.Bottom())
+	}
+	if maxY := loop[1].Y; maxY <= tgt.Bottom() {
+		t.Error("pick loop's line should run below its rows, not beside them")
 	}
 }

@@ -316,6 +316,20 @@ func (cl *compLayout) bestRect(cands []Rect, segs [][2]Point, selfID string) Rec
 			bestN = n
 			best = c
 		}
+		// A side candidate sits at a fixed offset from the node, so it can
+		// overlap a neighbour that a small shift would clear. Nudge it
+		// along its own axis before giving up on it.
+		for _, step := range []float64{7, -7, 14, -14, 21, -21} {
+			s := Rect{c.X + step, c.Y, c.W, c.H}
+			n := cl.collisionCount(s, segs, selfID)
+			if n == 0 {
+				return s
+			}
+			if n < bestN {
+				bestN = n
+				best = s
+			}
+		}
 	}
 	return best
 }

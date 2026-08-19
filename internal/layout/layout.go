@@ -1,8 +1,11 @@
 // Package layout computes a canonical BPMN diagram layout:
 //
 //   - the happy path (spine) runs left to right on one row,
-//   - gateway branches hang below the spine in tiers,
-//   - loops travel through dedicated channels and node-free corridors,
+//   - a spine gateway with exactly three outgoing flows uses all three
+//     diamond corners (shorter alternate up, longer down); otherwise
+//     alternates hang below in tiers, longest first,
+//   - back edges run on dedicated way-back lines below their rows and
+//     rise into the target's bottom; crossings are allowed only there,
 //   - everything is deterministic and derived from the model only.
 package layout
 
