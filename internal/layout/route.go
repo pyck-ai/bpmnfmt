@@ -79,6 +79,7 @@ const (
 	pkUnderRow                   // exit bottom, lane below own row, enter target bottom
 	pkBackBottom                 // exit bottom, way-back line below the lower row, corridor up, enter bottom
 	pkBackMargin                 // around the outside via the margin corridor
+	pkHLeft                      // straight horizontal along a row, right to left (retrograde chain)
 )
 
 type edgePlan struct {
@@ -109,10 +110,25 @@ func (cl *compLayout) planRoutes() error {
 
 		switch classify(cl.g, cl.chains, cl.chainOf, fl) {
 		case fcChainInternal:
+			if cl.retroChain(pl.src) {
+				// The chain reads backwards: the body IS the way-back line.
+				pl.kind = pkHLeft
+				cl.res.Retrograde[pl.id] = true
+				break
+			}
 			pl.kind = pkH
 			pl.entry = cl.dockLeft(pl, true)
 
 		case fcEntry:
+			if cl.retroChain(pl.dst) && aligned {
+				// The head sits in the split's own column: drop straight
+				// out of the bottom corner into its top.
+				pl.kind = pkVDown
+				pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, true, 0)
+				pl.entry = cl.dock(pl.id, pl.dst, sTop, sx, true, 0)
+				cl.useCorridor(sx, sr, dr)
+				break
+			}
 			cl.planBranchEntry(pl, sr, dr)
 
 		case fcExit, fcCross:
@@ -140,6 +156,12 @@ func (cl *compLayout) planRoutes() error {
 	cl.assignLanes()
 	cl.resolveDockings()
 	return nil
+}
+
+// retroChain reports whether a node belongs to a chain laid out right to left.
+func (cl *compLayout) retroChain(id string) bool {
+	i, ok := cl.chainOf[id]
+	return ok && i >= 0 && i < len(cl.chains) && cl.chains[i].retro
 }
 
 func (cl *compLayout) left(id string) float64  { return cl.x[id] - cl.width(id)/2 }
@@ -350,6 +372,17 @@ func (cl *compLayout) planUnderRow(pl *edgePlan, row int) {
 // dedicated line in the gap below the lower of the two rows, runs backward,
 // and rises into the target's bottom.
 func (cl *compLayout) planBack(pl *edgePlan, sr, dr int, sx, dx float64) {
+	// A retrograde branch has already walked the edge back to the target's
+	// column, so the way-back line has zero length: rise straight out of the
+	// source's top into the target's bottom.
+	if math.Abs(sx-dx) < 0.5 && dr < sr &&
+		cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx, dr, sr) {
+		cl.useCorridor(sx, dr, sr)
+		pl.kind = pkVUp
+		pl.exit = cl.dock(pl.id, pl.src, sTop, dx, true, 0)
+		pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, 0)
+		return
+	}
 	band := sr + 1
 	if dr > sr {
 		band = dr + 1

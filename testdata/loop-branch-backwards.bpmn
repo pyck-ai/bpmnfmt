@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_LoopBranchBackwards" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_LoopBranchBackwards" name="Retrograde loop branch" isExecutable="true">
+    <bpmn:documentation>Rule L3 fixture: a branch whose only exit is a back edge to a node upstream
+on its parent chain, with no sub-branches, is laid out RIGHT TO LEFT. The
+head sits in the split's column, each following node one column further
+left, and the tail lands in the loop target's column. The branch IS the
+way-back line: the entry drops straight from the split's bottom corner into
+the head's top, the body reads backwards, and the back edge rises straight
+from the tail's top into the target's bottom.
+
+Shape: Start -&gt; Check stock -&gt; G_Available -&gt; Fulfil -&gt; End on the
+spine, with a "no" branch of two nodes (Log shortage, Wait for restock)
+looping back to Check stock.
+
+The loop spans two columns (Check stock and G_Available) and the branch has
+two nodes, so marching left from the split at natural spacing lands the
+tail exactly in Check stock's column. That exact fill is the mandatory
+condition: a shorter branch would stop short of the target and a longer one
+would overshoot, and in both cases the back edge would have to travel
+sideways again — worse than the ordinary way-back line below the row.
+
+back-edge-below.bpmn is the negative control: one branch node across a
+two-column loop does not fill the span, so it keeps the way-back line
+below its rows.
+
+Exercises:
+  - the branch runs backwards, head under the split and tail under the
+    loop target,
+  - the entry is a straight drop into the head's top,
+  - the back edge is a straight rise into the target's bottom,
+  - the two internal flows run leftwards and are exempted from the
+    forward-direction invariant by name, not by disabling the check.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Loop" name="Order received">
+      <bpmn:outgoing>Flow_start_check</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_check" sourceRef="Start_Loop" targetRef="Task_Check" />
+    <bpmn:serviceTask id="Task_Check" name="Check stock">
+      <bpmn:incoming>Flow_start_check</bpmn:incoming>
+      <bpmn:incoming>Flow_wait_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_check_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_check_gw" sourceRef="Task_Check" targetRef="G_Available" />
+    <bpmn:exclusiveGateway id="G_Available" name="In stock?">
+      <bpmn:incoming>Flow_check_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_gw_fulfil</bpmn:outgoing>
+      <bpmn:outgoing>Flow_gw_log</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_gw_fulfil" name="yes" sourceRef="G_Available" targetRef="Task_Fulfil" />
+    <bpmn:serviceTask id="Task_Fulfil" name="Fulfil order">
+      <bpmn:incoming>Flow_gw_fulfil</bpmn:incoming>
+      <bpmn:outgoing>Flow_fulfil_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_fulfil_end" sourceRef="Task_Fulfil" targetRef="End_Loop" />
+    <bpmn:endEvent id="End_Loop" name="Order fulfilled">
+      <bpmn:incoming>Flow_fulfil_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_gw_log" name="no" sourceRef="G_Available" targetRef="Task_Log" />
+    <bpmn:serviceTask id="Task_Log" name="Log shortage">
+      <bpmn:incoming>Flow_gw_log</bpmn:incoming>
+      <bpmn:outgoing>Flow_log_wait</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_log_wait" sourceRef="Task_Log" targetRef="Task_Wait" />
+    <bpmn:serviceTask id="Task_Wait" name="Wait for restock">
+      <bpmn:incoming>Flow_log_wait</bpmn:incoming>
+      <bpmn:outgoing>Flow_wait_back</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_wait_back" sourceRef="Task_Wait" targetRef="Task_Check" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_LoopBranchBackwards">
+    <bpmndi:BPMNPlane id="BPMNPlane_LoopBranchBackwards" bpmnElement="Process_LoopBranchBackwards" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

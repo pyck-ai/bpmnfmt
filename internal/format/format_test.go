@@ -33,6 +33,7 @@ var fixtureNames = []string{
 	"gateway-cluster-columns.bpmn",
 	"rejoin-bundle-lane.bpmn",
 	"rejoin-right-then-up.bpmn",
+	"loop-branch-backwards.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -415,9 +416,10 @@ func TestCorridorRowRanges(t *testing.T) {
 		}
 	}
 
-	// The loop's back edge leaves Task_Join's bottom, runs below every row and
-	// rises into G_Top's bottom corner: the lane below the spine is the back
-	// edge's, which is why nothing else may claim it.
+	// The loop's back edge leaves Task_Join's bottom, runs below every row
+	// and rises into G_Top's bottom corner. Task_Join is reached by a second
+	// inbound flow, so rule L3 does NOT lay this branch out backwards — the
+	// way-back line stays where R6 puts it.
 	gTop, tJoin := lay.Shapes["G_Top"], lay.Shapes["Task_Join"]
 	back := lay.Edges["Flow_join_top"]
 	if len(back) < 4 {
@@ -436,7 +438,6 @@ func TestCorridorRowRanges(t *testing.T) {
 				pt.Y, gTop.Bottom())
 		}
 	}
-	// Its long run sits below every shape in the diagram.
 	lowest := 0.0
 	for _, id := range []string{"G_Top", "G_Mid", "Task_After", "Task_Low", "Task_Join"} {
 		lowest = math.Max(lowest, lay.Shapes[id].Bottom())
@@ -489,6 +490,74 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
+	}
+}
+
+// TestRetrogradeLoopBranch: rule L3. A branch whose only exit is a back edge
+// upstream on its own chain, with no sub-branches, is laid out right to
+// left: the branch IS the way-back line, so the loop reads as a rectangle
+// instead of a forward run with a return line slung underneath it.
+func TestRetrogradeLoopBranch(t *testing.T) {
+	_, _, lay := layoutOf(t, "loop-branch-backwards.bpmn")
+	cx := func(id string) float64 { r := lay.Shapes[id]; return r.X + r.W/2 }
+
+	if d := cx("Task_Log") - cx("G_Available"); d > 0.5 || d < -0.5 {
+		t.Errorf("the branch head must sit in the split's column (dx=%.0f)", d)
+	}
+	if d := cx("Task_Wait") - cx("Task_Check"); d > 0.5 || d < -0.5 {
+		t.Errorf("the branch tail must land in the loop target's column (dx=%.0f)", d)
+	}
+
+	gw, log := lay.Shapes["G_Available"], lay.Shapes["Task_Log"]
+	entry := lay.Edges["Flow_gw_log"]
+	if len(entry) != 2 {
+		t.Fatalf("Flow_gw_log must drop straight into the head's top, got %v", entry)
+	}
+	if entry[0].X != gw.CX() || entry[0].Y != gw.Bottom() ||
+		entry[1].X != log.CX() || entry[1].Y != log.Y {
+		t.Errorf("Flow_gw_log must run from the split's bottom corner to the head's top (%v)", entry)
+	}
+
+	body := lay.Edges["Flow_log_wait"]
+	if len(body) != 2 || body[1].X >= body[0].X {
+		t.Errorf("the branch body must read right to left (%v)", body)
+	}
+
+	wait, check := lay.Shapes["Task_Wait"], lay.Shapes["Task_Check"]
+	back := lay.Edges["Flow_wait_back"]
+	if len(back) != 2 {
+		t.Fatalf("Flow_wait_back must be a straight rise, got %v", back)
+	}
+	if back[0].X != wait.CX() || back[0].Y != wait.Y ||
+		back[1].X != check.CX() || back[1].Y != check.Bottom() {
+		t.Errorf("Flow_wait_back must rise from the tail's top into the target's bottom (%v)", back)
+	}
+
+	// The leftward runs are exempted by name, not by disabling the check.
+	if got := len(lay.Retrograde); got != 1 {
+		t.Errorf("Retrograde should name the chain's 1 internal flow, got %d: %v", got, lay.Retrograde)
+	}
+	if !lay.Retrograde["Flow_log_wait"] {
+		t.Error("Flow_log_wait must be registered as retrograde")
+	}
+}
+
+// TestBackEdgeBelowStaysBelow is rule L3's negative control and is
+// load-bearing: back-edge-below has one branch node across a two-column
+// loop, so the fill condition rejects it and the way-back line stays below
+// the rows. If the fill condition is ever loosened, this trips.
+func TestBackEdgeBelowStaysBelow(t *testing.T) {
+	_, _, lay := layoutOf(t, "back-edge-below.bpmn")
+	if len(lay.Retrograde) != 0 {
+		t.Errorf("back-edge-below must not be laid out retrograde: %v", lay.Retrograde)
+	}
+	src, dst := lay.Shapes["Task_Correct"], lay.Shapes["Task_EnterData"]
+	pts := lay.Edges["Flow_correct_back"]
+	if len(pts) < 4 {
+		t.Fatalf("the way-back edge must keep its line below the rows, got %v", pts)
+	}
+	if pts[1].Y <= math.Max(src.Bottom(), dst.Bottom()) {
+		t.Errorf("the way-back line must run below both rows (y=%.0f)", pts[1].Y)
 	}
 }
 
@@ -546,11 +615,18 @@ func TestRejoinRightThenUp(t *testing.T) {
 func TestNoRiserOutOfAnActivityTop(t *testing.T) {
 	for _, name := range fixtureNames {
 		t.Run(name, func(t *testing.T) {
-			p, _, lay := layoutOf(t, name)
+			p, g, lay := layoutOf(t, name)
 			for _, sc := range []*model.Process{p} {
 				for _, fl := range sc.Flows {
 					n := sc.NodeByID[fl.SourceRef]
 					if n == nil || n.Kind.IsEvent() || n.Kind.IsGateway() {
+						continue
+					}
+					if g.Back[fl.ID] {
+						// Back edges are rule R6's, not L1's: a retrograde
+						// branch closes its loop by rising out of its tail
+						// (rule L3), which is the shape that reads as "and
+						// now back to here".
 						continue
 					}
 					pts := lay.Edges[fl.ID]

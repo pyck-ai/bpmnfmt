@@ -63,6 +63,7 @@ func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSi
 			Labels:     map[string]Rect{},
 			EdgeLabels: map[string]Rect{},
 			Edges:      map[string][]Point{},
+			Retrograde: map[string]bool{},
 		},
 	}
 	var err error
@@ -73,6 +74,7 @@ func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSi
 	if err := cl.assignX(); err != nil {
 		return nil, err
 	}
+	cl.applyRetro()
 	cl.alignChains()
 	cl.assignRows()
 	if err := cl.planRoutes(); err != nil {
@@ -346,6 +348,52 @@ func snapToColumn(x float64) float64 {
 	return first + k*ColPitch
 }
 
+// snapDownToColumn rounds a center x DOWN to the previous column center; it
+// is snapToColumn's mirror, for laying a chain out right to left.
+func snapDownToColumn(x float64) float64 {
+	first := ColPitch / 2
+	k := math.Floor((x - first + 1e-6) / ColPitch)
+	if k < 0 {
+		k = 0
+	}
+	return first + k*ColPitch
+}
+
+// applyRetro lays out each retrograde candidate right to left, head in the
+// split's column and every following node one step further left.
+//
+// FILL CONDITION: marching left at natural spacing must land the tail
+// exactly IN the loop target's column. A branch that is too short stops
+// short of the target and a branch that is too long overshoots it; either
+// way the back edge would have to travel sideways again, which is worse
+// than the ordinary way-back line below the row. Only an exact fill is
+// accepted — everything else keeps the forward layout it already has.
+func (cl *compLayout) applyRetro() {
+	for _, ch := range cl.chains {
+		if !ch.retro {
+			continue
+		}
+		fl := backEdgeOut(cl.g, ch.nodes[len(ch.nodes)-1])
+		if fl == nil {
+			ch.retro = false
+			continue
+		}
+		xs := make([]float64, len(ch.nodes))
+		xs[0] = cl.x[ch.parentNode]
+		for i := 1; i < len(ch.nodes); i++ {
+			gap := (cl.spacingWidth(ch.nodes[i-1])+cl.spacingWidth(ch.nodes[i]))/2 + GapX
+			xs[i] = snapDownToColumn(xs[i-1] - gap)
+		}
+		if math.Abs(xs[len(xs)-1]-cl.x[fl.TargetRef]) > 0.5 {
+			ch.retro = false // does not fill the span; keep the way-back line
+			continue
+		}
+		for i, id := range ch.nodes {
+			cl.x[id] = xs[i]
+		}
+	}
+}
+
 func (cl *compLayout) componentFlows() []*model.SequenceFlow {
 	var out []*model.SequenceFlow
 	for _, fl := range cl.p.Flows {
@@ -423,6 +471,19 @@ func (cl *compLayout) alignChains() {
 // span is a solid horizontal extent within a row.
 type span struct{ lo, hi float64 }
 
+// chainExtent is the horizontal span a chain's nodes occupy. A retrograde
+// chain runs right to left, so the bounds come from every node rather than
+// from the first and last.
+func (cl *compLayout) chainExtent(ch *chain) (lo, hi float64) {
+	lo, hi = math.Inf(1), math.Inf(-1)
+	for _, id := range ch.nodes {
+		half := cl.width(id) / 2
+		lo = math.Min(lo, cl.x[id]-half)
+		hi = math.Max(hi, cl.x[id]+half)
+	}
+	return lo, hi
+}
+
 // assignRows places each chain in the highest tier that is strictly below
 // its parent chain and free of horizontal overlap (rule R4: tier sharing).
 // The branches of one split node are placed longest-first, so the longest
@@ -448,14 +509,15 @@ func (cl *compLayout) assignRows() {
 	// place puts a chain on the first overlap-free row starting at from and
 	// stepping by step (+1 = downward, -1 = upward).
 	place := func(ch *chain, from, step int) {
-		head, tail := ch.nodes[0], ch.nodes[len(ch.nodes)-1]
-		lo := cl.x[head] - cl.width(head)/2 - ChainPad
+		lo, hi := cl.chainExtent(ch)
+		lo, hi = lo-ChainPad, hi+ChainPad
 		if ch.parentNode != "" {
 			// The entry edge turns a corner at the split's column, so the
 			// row is occupied from there rather than from the head.
 			lo = math.Min(lo, cl.x[ch.parentNode]-ChainPad)
+			hi = math.Max(hi, cl.x[ch.parentNode]+ChainPad)
 		}
-		iv := span{lo, cl.x[tail] + cl.width(tail)/2 + ChainPad}
+		iv := span{lo, hi}
 		row := from
 		for overlapRow(row, iv) {
 			row += step
@@ -561,13 +623,12 @@ func (cl *compLayout) assignRows() {
 	for _, row := range cl.rows {
 		sort.SliceStable(row, func(i, j int) bool { return cl.x[row[i]] < cl.x[row[j]] })
 	}
-	// Solid extents: chain nodes plus the edges connecting them.
+	// Solid extents: chain nodes plus the edges connecting them. A retro
+	// chain runs right to left, so its bounds come from every node rather
+	// than from the first and last.
 	for _, ch := range cl.chains {
-		head, tail := ch.nodes[0], ch.nodes[len(ch.nodes)-1]
-		cl.rowSpans[ch.row] = append(cl.rowSpans[ch.row], span{
-			cl.x[head] - cl.width(head)/2,
-			cl.x[tail] + cl.width(tail)/2,
-		})
+		lo, hi := cl.chainExtent(ch)
+		cl.rowSpans[ch.row] = append(cl.rowSpans[ch.row], span{lo, hi})
 	}
 }
 
