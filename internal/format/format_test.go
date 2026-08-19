@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/pyck-ai/bpmnfmt/internal/graph"
@@ -26,6 +27,7 @@ var fixtureNames = []string{
 	"branch-entry-elbow.bpmn",
 	"back-edge-below.bpmn",
 	"lifted-subtree.bpmn",
+	"corridor-row-ranges.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -345,6 +347,101 @@ func TestBackEdgeRunsBelow(t *testing.T) {
 	}
 }
 
+// vertOverlap returns the length two axis-parallel segments share when both
+// are vertical and sit in the same column (0 otherwise).
+func vertOverlap(a1, a2, b1, b2 layout.Point) float64 {
+	if math.Abs(a1.X-a2.X) > 0.5 || math.Abs(b1.X-b2.X) > 0.5 || math.Abs(a1.X-b1.X) > 0.5 {
+		return 0
+	}
+	lo := math.Max(math.Min(a1.Y, a2.Y), math.Min(b1.Y, b2.Y))
+	hi := math.Min(math.Max(a1.Y, a2.Y), math.Max(b1.Y, b2.Y))
+	return hi - lo
+}
+
+// TestCorridorRowRanges: rule L2. A corridor reservation covers a column and
+// the band of rows the vertical crosses, so no two verticals ever share a
+// stroke — two lines in one column would merge into one and hide whatever
+// arrowheads they carry. Verticals whose row bands are disjoint may share a
+// column, which is what keeps rejoins from stepping sideways forever.
+func TestCorridorRowRanges(t *testing.T) {
+	p, _, lay := layoutOf(t, "corridor-row-ranges.bpmn")
+
+	// UNDER-RESERVATION GUARD: no two distinct edges may run collinearly in
+	// one column, unless they leave the same point (a split's shared trunk).
+	var ids []string
+	for _, fl := range p.Flows {
+		if len(lay.Edges[fl.ID]) > 0 {
+			ids = append(ids, fl.ID)
+		}
+	}
+	sort.Strings(ids)
+	for i, a := range ids {
+		pa := lay.Edges[a]
+		for _, b := range ids[i+1:] {
+			pb := lay.Edges[b]
+			if math.Abs(pa[0].X-pb[0].X) < 0.5 && math.Abs(pa[0].Y-pb[0].Y) < 0.5 {
+				continue // one trunk, both edges peel off it
+			}
+			for x := 0; x+1 < len(pa); x++ {
+				for y := 0; y+1 < len(pb); y++ {
+					if ov := vertOverlap(pa[x], pa[x+1], pb[y], pb[y+1]); ov > 0.5 {
+						t.Errorf("%s and %s share a %.0fpx vertical run at x=%.0f",
+							a, b, ov, pa[x].X)
+					}
+				}
+			}
+		}
+	}
+
+	// No route may double back on itself: a horizontal run that reverses
+	// direction is the staircase an under-reserved corridor produces.
+	for _, id := range ids {
+		pts := lay.Edges[id]
+		prev := 0.0
+		for i := 0; i+1 < len(pts); i++ {
+			dx := pts[i+1].X - pts[i].X
+			if math.Abs(dx) < 0.5 {
+				continue
+			}
+			if prev != 0 && (dx > 0) != (prev > 0) {
+				t.Errorf("%s reverses direction at %v: %v", id, pts[i], pts)
+			}
+			prev = dx
+		}
+	}
+
+	// The loop's back edge leaves Task_Join's bottom, runs below every row and
+	// rises into G_Top's bottom corner: the lane below the spine is the back
+	// edge's, which is why nothing else may claim it.
+	gTop, tJoin := lay.Shapes["G_Top"], lay.Shapes["Task_Join"]
+	back := lay.Edges["Flow_join_top"]
+	if len(back) < 4 {
+		t.Fatalf("Flow_join_top should be a way-back route, got %v", back)
+	}
+	if back[0].X != tJoin.CX() || back[0].Y != tJoin.Bottom() {
+		t.Errorf("Flow_join_top must leave Task_Join's bottom (got %v)", back[0])
+	}
+	if last := back[len(back)-1]; last.X != gTop.CX() || last.Y != gTop.Bottom() {
+		t.Errorf("Flow_join_top must enter G_Top's bottom corner (got %v, want %.0f,%.0f)",
+			last, gTop.CX(), gTop.Bottom())
+	}
+	for _, pt := range back {
+		if pt.Y < gTop.Bottom() {
+			t.Errorf("Flow_join_top must stay below the rows it passes (y=%.0f, spine row ends at %.0f)",
+				pt.Y, gTop.Bottom())
+		}
+	}
+	// Its long run sits below every shape in the diagram.
+	lowest := 0.0
+	for _, id := range []string{"G_Top", "G_Mid", "Task_After", "Task_Low", "Task_Join"} {
+		lowest = math.Max(lowest, lay.Shapes[id].Bottom())
+	}
+	if back[1].Y <= lowest {
+		t.Errorf("the way-back line should run below every row (y=%.0f, lowest shape ends at %.0f)",
+			back[1].Y, lowest)
+	}
+}
+
 // TestLoopHeaderKeepsBodyStraight: rule B at a loop-header gateway. The
 // branch whose subtree feeds the back edge continues straight on the spine
 // row; the back edge owns the lane below it, so the loop exit leaves through
@@ -533,5 +630,28 @@ func TestTourExecutionAcceptance(t *testing.T) {
 	}
 	if prev.X != last.X || prev.Y <= last.Y {
 		t.Errorf("pick loop should rise into its target (%v -> %v)", prev, last)
+	}
+
+	// Rule L2: the shortage rejoin owns one column for the rows it crosses
+	// and enters the gateway in that same column, so it is a single jog and
+	// a straight run rather than a staircase that steps back and forth.
+	rejoin := lay.Edges["Flow_0rm1m90"]
+	if len(rejoin) > 4 {
+		t.Errorf("Flow_0rm1m90 should need at most 4 waypoints, got %d: %v", len(rejoin), rejoin)
+	}
+	prevDX := 0.0
+	for i := 0; i+1 < len(rejoin); i++ {
+		dx := rejoin[i+1].X - rejoin[i].X
+		if math.Abs(dx) < 0.5 {
+			continue
+		}
+		if prevDX != 0 && (dx > 0) != (prevDX > 0) {
+			t.Errorf("Flow_0rm1m90 reverses direction at %v: %v", rejoin[i], rejoin)
+		}
+		prevDX = dx
+	}
+	if n := len(rejoin); n >= 2 && math.Abs(rejoin[n-1].X-rejoin[n-2].X) > 0.5 {
+		t.Errorf("Flow_0rm1m90 should approach the gateway straight (%v -> %v)",
+			rejoin[n-2], rejoin[n-1])
 	}
 }

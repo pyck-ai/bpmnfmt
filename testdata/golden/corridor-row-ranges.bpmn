@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CorridorRowRanges" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_CorridorRowRanges" name="Corridor row ranges" isExecutable="true">
+    <bpmn:documentation>Rule L2 fixture: a corridor reservation covers a column AND the band of rows
+the vertical traverses, so two verticals may share one column whenever their
+row bands are disjoint.
+
+Shape: Start -&gt; G_Top -&gt; G_Mid -&gt; After -&gt; End on the spine, with a
+two-node loop hanging under G_Mid (Low -&gt; Join) plus a direct G_Mid -&gt; Join
+cross flow, and Join looping back up to G_Top.
+
+The three verticals leaving G_Mid and the rejoin into G_Top all want the same
+neighbourhood of columns. Under the old whole-diagram reservation each one
+had to step 20px sideways from the last, which is what produced the
+staircase-shaped rejoins; with per-row-range reservations a vertical only
+has to dodge another vertical whose rows it actually shares.
+
+Exercises:
+  - every vertical run in the diagram owns its column over the rows it
+    crosses (no two edges share a collinear vertical run),
+  - an edge that jogs between two ADJACENT rows uses one lane, not two in
+    the same gap, so no route doubles back on itself,
+  - an edge routed through a corridor enters its target in the corridor's
+    own column: the final approach is straight, with no short tail jog.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Corridor" name="Batch received">
+      <bpmn:outgoing>Flow_start_top</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_top" sourceRef="Start_Corridor" targetRef="G_Top" />
+    <bpmn:exclusiveGateway id="G_Top" name="More work?">
+      <bpmn:incoming>Flow_start_top</bpmn:incoming>
+      <bpmn:incoming>Flow_join_top</bpmn:incoming>
+      <bpmn:outgoing>Flow_top_mid</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_top_mid" sourceRef="G_Top" targetRef="G_Mid" />
+    <bpmn:exclusiveGateway id="G_Mid" name="Route item">
+      <bpmn:incoming>Flow_top_mid</bpmn:incoming>
+      <bpmn:outgoing>Flow_mid_after</bpmn:outgoing>
+      <bpmn:outgoing>Flow_mid_low</bpmn:outgoing>
+      <bpmn:outgoing>Flow_mid_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_mid_after" name="done" sourceRef="G_Mid" targetRef="Task_After" />
+    <bpmn:serviceTask id="Task_After" name="Close batch">
+      <bpmn:incoming>Flow_mid_after</bpmn:incoming>
+      <bpmn:outgoing>Flow_after_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_after_end" sourceRef="Task_After" targetRef="End_Corridor" />
+    <bpmn:endEvent id="End_Corridor" name="Batch closed">
+      <bpmn:incoming>Flow_after_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_mid_low" name="rework" sourceRef="G_Mid" targetRef="Task_Low" />
+    <bpmn:serviceTask id="Task_Low" name="Rework item">
+      <bpmn:incoming>Flow_mid_low</bpmn:incoming>
+      <bpmn:outgoing>Flow_low_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_low_join" sourceRef="Task_Low" targetRef="Task_Join" />
+    <bpmn:sequenceFlow id="Flow_mid_join" name="skip" sourceRef="G_Mid" targetRef="Task_Join" />
+    <bpmn:serviceTask id="Task_Join" name="Settle item">
+      <bpmn:incoming>Flow_low_join</bpmn:incoming>
+      <bpmn:incoming>Flow_mid_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_join_top</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_join_top" sourceRef="Task_Join" targetRef="G_Top" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_CorridorRowRanges">
+      <bpmndi:BPMNShape id="Start_Corridor_di" bpmnElement="Start_Corridor">
+        <dc:Bounds x="72" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="122" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Top_di" bpmnElement="G_Top" isMarkerVisible="true">
+        <dc:Bounds x="225" y="72" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="218" y="50" width="63" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Mid_di" bpmnElement="G_Mid" isMarkerVisible="true">
+        <dc:Bounds x="385" y="72" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="381" y="50" width="58" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_After_di" bpmnElement="Task_After">
+        <dc:Bounds x="520" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Corridor_di" bpmnElement="End_Corridor">
+        <dc:Bounds x="712" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="695" y="122" width="69" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Low_di" bpmnElement="Task_Low">
+        <dc:Bounds x="520" y="195" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Join_di" bpmnElement="Task_Join">
+        <dc:Bounds x="680" y="195" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_top_di" bpmnElement="Flow_start_top">
+        <di:waypoint x="108" y="97" />
+        <di:waypoint x="225" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_top_mid_di" bpmnElement="Flow_top_mid">
+        <di:waypoint x="275" y="97" />
+        <di:waypoint x="385" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_mid_after_di" bpmnElement="Flow_mid_after">
+        <di:waypoint x="435" y="97" />
+        <di:waypoint x="520" y="97" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="443" y="77" width="27" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_after_end_di" bpmnElement="Flow_after_end">
+        <di:waypoint x="620" y="97" />
+        <di:waypoint x="712" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_mid_low_di" bpmnElement="Flow_mid_low">
+        <di:waypoint x="410" y="122" />
+        <di:waypoint x="410" y="235" />
+        <di:waypoint x="520" y="235" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="418" y="127" width="36" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_low_join_di" bpmnElement="Flow_low_join">
+        <di:waypoint x="620" y="235" />
+        <di:waypoint x="680" y="235" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_mid_join_di" bpmnElement="Flow_mid_join">
+        <di:waypoint x="410" y="122" />
+        <di:waypoint x="410" y="136" />
+        <di:waypoint x="424" y="136" />
+        <di:waypoint x="424" y="177" />
+        <di:waypoint x="645" y="177" />
+        <di:waypoint x="645" y="221" />
+        <di:waypoint x="680" y="221" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="418" y="155" width="21" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_join_top_di" bpmnElement="Flow_join_top">
+        <di:waypoint x="730" y="275" />
+        <di:waypoint x="730" y="293" />
+        <di:waypoint x="250" y="293" />
+        <di:waypoint x="250" y="122" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
