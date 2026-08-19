@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_RejoinBundleLane" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_RejoinBundleLane" name="Rejoin bundle lane" isExecutable="true">
+    <bpmn:documentation>Rule L6 fixture: horizontal runs in one gap that end at the SAME target and
+rise into it share ONE lane, at one y, forming a single line with short
+risers peeling off at the target's own face offsets.
+
+Shape: Start -&gt; G1 -&gt; Screen -&gt; G2 -&gt; Assess -&gt; G3 -&gt; Approve -&gt; G_Join
+-&gt; End on one row, with a skip arc from each of the three gateways to
+G_Join.
+
+The three arcs all overlap, so packing them first-fit gave each its own
+lane: three parallel lines under the row, a staircase of near-identical
+arcs whose only difference was where they started. They are one rejoin
+bundle — same target, same face — so they belong on one line.
+
+L6b orders lanes by lo ascending then hi descending, which puts a
+containing arc further from its row than the arc nested inside it. Here all
+three end at G_Join, so the bundle collapses to a single lane and the order
+only decides where that lane sits relative to anything else in the gap.
+
+Exercises:
+  - the three arcs' long runs share one y,
+  - their risers have three distinct x, all on G_Join's bottom face,
+  - the diagram has no crossings at all.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Bundle" name="Claim filed">
+      <bpmn:outgoing>Flow_start_g1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_g1" sourceRef="Start_Bundle" targetRef="G1" />
+    <bpmn:exclusiveGateway id="G1" name="Fast track?">
+      <bpmn:incoming>Flow_start_g1</bpmn:incoming>
+      <bpmn:outgoing>Flow_g1_t1</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g1_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_g1_t1" name="no" sourceRef="G1" targetRef="Task_1" />
+    <bpmn:serviceTask id="Task_1" name="Screen claim">
+      <bpmn:incoming>Flow_g1_t1</bpmn:incoming>
+      <bpmn:outgoing>Flow_t1_g2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t1_g2" sourceRef="Task_1" targetRef="G2" />
+    <bpmn:exclusiveGateway id="G2" name="Needs assessment?">
+      <bpmn:incoming>Flow_t1_g2</bpmn:incoming>
+      <bpmn:outgoing>Flow_g2_t2</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g2_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_g2_t2" name="yes" sourceRef="G2" targetRef="Task_2" />
+    <bpmn:serviceTask id="Task_2" name="Assess damage">
+      <bpmn:incoming>Flow_g2_t2</bpmn:incoming>
+      <bpmn:outgoing>Flow_t2_g3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t2_g3" sourceRef="Task_2" targetRef="G3" />
+    <bpmn:exclusiveGateway id="G3" name="Needs approval?">
+      <bpmn:incoming>Flow_t2_g3</bpmn:incoming>
+      <bpmn:outgoing>Flow_g3_t3</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g3_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_g3_t3" name="yes" sourceRef="G3" targetRef="Task_3" />
+    <bpmn:serviceTask id="Task_3" name="Approve payout">
+      <bpmn:incoming>Flow_g3_t3</bpmn:incoming>
+      <bpmn:outgoing>Flow_t3_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t3_join" sourceRef="Task_3" targetRef="G_Join" />
+    <bpmn:exclusiveGateway id="G_Join" name="Ready to pay">
+      <bpmn:incoming>Flow_t3_join</bpmn:incoming>
+      <bpmn:incoming>Flow_g1_join</bpmn:incoming>
+      <bpmn:incoming>Flow_g2_join</bpmn:incoming>
+      <bpmn:incoming>Flow_g3_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_join_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_join_end" sourceRef="G_Join" targetRef="End_Bundle" />
+    <bpmn:endEvent id="End_Bundle" name="Claim settled">
+      <bpmn:incoming>Flow_join_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_g1_join" name="yes" sourceRef="G1" targetRef="G_Join" />
+    <bpmn:sequenceFlow id="Flow_g2_join" name="no" sourceRef="G2" targetRef="G_Join" />
+    <bpmn:sequenceFlow id="Flow_g3_join" name="no" sourceRef="G3" targetRef="G_Join" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_RejoinBundleLane">
+    <bpmndi:BPMNPlane id="BPMNPlane_RejoinBundleLane" bpmnElement="Process_RejoinBundleLane" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

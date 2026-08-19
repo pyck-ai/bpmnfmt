@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"fmt"
 	"math"
 	"sort"
 )
@@ -25,6 +26,7 @@ type sideKey struct {
 // an arrowhead landing where another already sits is invisible.
 type docking struct {
 	edge string
+	side nodeSide
 	// approach orders dockings along the side: the x of the far end for
 	// top/bottom, the row the edge comes from for the left side.
 	approach float64
@@ -355,7 +357,7 @@ func (cl *compLayout) planMargin(pl *edgePlan, sr, dr int, backEntry bool) {
 // --- helpers -----------------------------------------------------------------
 
 func (cl *compLayout) dock(edge, node string, side nodeSide, approach float64, pinned bool, fixed float64) *docking {
-	d := &docking{edge: edge, approach: approach, pinned: pinned, fixed: fixed}
+	d := &docking{edge: edge, side: side, approach: approach, pinned: pinned, fixed: fixed}
 	k := sideKey{node, side}
 	cl.sides[k] = append(cl.sides[k], d)
 	return d
@@ -456,39 +458,103 @@ func (cl *compLayout) nodesBetween(row int, a, b float64) bool {
 	return false
 }
 
-// assignLanes packs each gap's segments into lanes (first-fit, widest first).
+// laneBundles keys each lane segment that carries an edge into a target's
+// top or bottom face by that target and face (rule L6a). Runs sharing a key
+// are the same rejoin bundle: they end at one node and rise into it, so they
+// belong on one line with short risers peeling off at their own offsets
+// rather than on a staircase of parallel lines. Way-back edges are excluded;
+// their stacking is rule R6's and stays as it is.
+func (cl *compLayout) laneBundles() map[*laneSeg]string {
+	out := map[*laneSeg]string{}
+	for _, pl := range cl.plans {
+		switch pl.kind {
+		case pkBackBottom, pkBackMargin:
+			continue
+		}
+		if pl.entry == nil || (pl.entry.side != sTop && pl.entry.side != sBottom) {
+			continue
+		}
+		// The run adjacent to the target is the last one the route uses.
+		seg := pl.seg2
+		if seg == nil {
+			seg = pl.seg1
+		}
+		if seg == nil {
+			continue
+		}
+		out[seg] = fmt.Sprintf("%s/%d", pl.dst, pl.entry.side)
+	}
+	return out
+}
+
+// laneGroup is one bundle (or one lone segment) competing for a lane.
+type laneGroup struct {
+	segs   []*laneSeg
+	lo, hi float64
+}
+
+// assignLanes packs each gap's segments into lanes. Segments of one rejoin
+// bundle share a lane (L6a) and are packed as a single run spanning all of
+// them. Groups are ordered by lo ascending then hi descending (L6b), so a
+// nested arc lands on a later lane than the arc containing it — and laneY
+// puts later lanes nearer the row, which is what makes them nest.
 func (cl *compLayout) assignLanes() {
+	bundle := cl.laneBundles()
 	for _, segs := range cl.gapLanes {
 		if len(segs) == 0 {
 			continue
 		}
-		ordered := append([]*laneSeg(nil), segs...)
-		sort.SliceStable(ordered, func(i, j int) bool {
-			wi, wj := ordered[i].hi()-ordered[i].lo(), ordered[j].hi()-ordered[j].lo()
-			if wi != wj {
-				return wi > wj
+		var groups []*laneGroup
+		byKey := map[string]*laneGroup{}
+		for _, s := range segs {
+			if k := bundle[s]; k != "" {
+				if g := byKey[k]; g != nil {
+					g.segs = append(g.segs, s)
+					g.lo, g.hi = math.Min(g.lo, s.lo()), math.Max(g.hi, s.hi())
+					continue
+				}
+				g := &laneGroup{segs: []*laneSeg{s}, lo: s.lo(), hi: s.hi()}
+				byKey[k] = g
+				groups = append(groups, g)
+				continue
 			}
-			return ordered[i].edge < ordered[j].edge
+			groups = append(groups, &laneGroup{segs: []*laneSeg{s}, lo: s.lo(), hi: s.hi()})
+		}
+		for _, g := range groups {
+			sort.SliceStable(g.segs, func(i, j int) bool { return g.segs[i].edge < g.segs[j].edge })
+		}
+		sort.SliceStable(groups, func(i, j int) bool {
+			if groups[i].lo != groups[j].lo {
+				return groups[i].lo < groups[j].lo
+			}
+			if groups[i].hi != groups[j].hi {
+				return groups[i].hi > groups[j].hi
+			}
+			return groups[i].segs[0].edge < groups[j].segs[0].edge
 		})
-		var lanes [][]*laneSeg
+		var lanes [][]*laneGroup
 	next:
-		for _, s := range ordered {
+		for _, g := range groups {
 			for li, lane := range lanes {
 				ok := true
 				for _, o := range lane {
-					if s.lo() < o.hi()+20 && o.lo() < s.hi()+20 {
+					if g.lo < o.hi+20 && o.lo < g.hi+20 {
 						ok = false
 						break
 					}
 				}
 				if ok {
-					s.lane = li
-					lanes[li] = append(lanes[li], s)
+					for _, s := range g.segs {
+						s.lane = li
+					}
+					lanes[li] = append(lanes[li], g)
 					continue next
 				}
 			}
-			s.lane = len(lanes)
-			lanes = append(lanes, []*laneSeg{s})
+			for _, s := range g.segs {
+				s.lane = len(lanes)
+			}
+			lanes = append(lanes, []*laneGroup{g})
 		}
 	}
 }
