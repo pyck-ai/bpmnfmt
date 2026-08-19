@@ -245,6 +245,10 @@ func (cl *compLayout) materializeEdges() {
 		case pkH:
 			pts = []Point{{src.Right(), src.CY()}, {dst.X, entryY()}}
 
+		case pkHLeft:
+			// Retrograde chain: the row reads right to left.
+			pts = []Point{{src.X, src.CY()}, {dst.Right(), dst.CY()}}
+
 		case pkVDown:
 			// The two ends share a column unless a docking had to move
 			// aside, in which case the run jogs mid-gap.

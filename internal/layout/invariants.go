@@ -139,8 +139,8 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 // within a single scope (a process or a sub-process interior).
 func checkFlowGeometry(p *model.Process, g *graph.Graph, res *Result, out *[]string) {
 	for _, fl := range p.Flows {
-		if g.Back[fl.ID] {
-			continue
+		if g.Back[fl.ID] || res.Retrograde[fl.ID] {
+			continue // loops, and the body of a retrograde branch (rule L3)
 		}
 		src, okS := res.Shapes[fl.SourceRef]
 		dst, okD := res.Shapes[fl.TargetRef]

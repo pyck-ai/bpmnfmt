@@ -22,6 +22,7 @@ type chain struct {
 	row        int    // assigned tier (row index); the spine's row is 0 unless above-branches push it down
 	weight     int    // node count of this chain plus its whole subtree
 	lifted     bool   // routed above its parent instead of below
+	retro      bool   // laid out right to left; the chain IS the way-back line
 }
 
 // decompose splits a component into chains. Every node lands in exactly one
@@ -161,7 +162,85 @@ func decompose(g *graph.Graph, c *graph.Component) ([]*chain, map[string]int, er
 	computeWeights(chains)
 	markLifted(g, c, chains)
 	markLoopExits(g, c, chains)
+	markRetro(g, chains, chainOf)
 	return chains, chainOf, nil
+}
+
+// backEdgeOut returns the single back edge leaving a node, when the node has
+// no forward continuation at all and exactly one loop edge.
+func backEdgeOut(g *graph.Graph, id string) *model.SequenceFlow {
+	if len(g.ForwardOut(id)) > 0 {
+		return nil
+	}
+	var found *model.SequenceFlow
+	for _, fl := range g.Out[id] {
+		if !g.Back[fl.ID] {
+			return nil
+		}
+		if found != nil {
+			return nil // more than one loop out
+		}
+		found = fl
+	}
+	return found
+}
+
+// markRetro flags branches that are nothing but a loop back: a chain hanging
+// off a split whose only exit is a back edge to a node upstream on the same
+// chain, with no rejoin and no sub-branches. Such a branch reads best laid
+// out RIGHT TO LEFT — the body itself becomes the way-back line, instead of
+// running forward and then doubling back under the row.
+//
+// This marks CANDIDATES only. Whether the branch actually fits between the
+// split's column and the loop target's column cannot be known until columns
+// exist, so applyRetro makes the final call.
+func markRetro(g *graph.Graph, chains []*chain, chainOf map[string]int) {
+	for _, ch := range chains {
+		if ch.parent < 0 || ch.isRoot || ch.parentNode == "" || ch.lifted {
+			continue
+		}
+		if ch.mergeNode != "" || ch.weight != len(ch.nodes) {
+			continue // rejoins, or has sub-branches of its own
+		}
+		fl := backEdgeOut(g, ch.nodes[len(ch.nodes)-1])
+		if fl == nil {
+			continue
+		}
+		// Nothing but the entry flow may reach into the branch. Marching it
+		// left drags its nodes behind their own column, so any other inbound
+		// forward flow would end up running backwards to reach them.
+		shared := false
+		for _, id := range ch.nodes {
+			for _, in := range g.ForwardIn(id) {
+				if in.ID != ch.entryFlow && chainOf[in.SourceRef] != ch.idx {
+					shared = true
+				}
+			}
+		}
+		if shared {
+			continue
+		}
+		// The loop target must sit on the parent chain, upstream of the
+		// split: that is what makes the branch retrograde rather than a
+		// jump into unrelated territory.
+		parent := chains[ch.parent]
+		if chainOf[fl.TargetRef] != ch.parent {
+			continue
+		}
+		pos := func(id string) int {
+			for i, n := range parent.nodes {
+				if n == id {
+					return i
+				}
+			}
+			return -1
+		}
+		t, s := pos(fl.TargetRef), pos(ch.parentNode)
+		if t < 0 || s < 0 || t >= s {
+			continue
+		}
+		ch.retro = true
+	}
 }
 
 // childrenOf groups chain indices by their parent, preserving chain order

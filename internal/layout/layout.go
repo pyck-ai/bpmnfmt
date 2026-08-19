@@ -77,6 +77,10 @@ type Result struct {
 	Labels     map[string]Rect    // external node labels (events, gateways)
 	EdgeLabels map[string]Rect    // labels of named sequence flows
 	Edges      map[string][]Point // sequence flows and associations
+	// Retrograde holds the sequence flows of chains laid out right to left
+	// (rule L3). They legitimately run leftwards, so the forward-direction
+	// invariant exempts exactly these and no others.
+	Retrograde map[string]bool
 }
 
 // Compute lays out one process.
@@ -86,6 +90,7 @@ func Compute(p *model.Process, g *graph.Graph) (*Result, error) {
 		Labels:     map[string]Rect{},
 		EdgeLabels: map[string]Rect{},
 		Edges:      map[string][]Point{},
+		Retrograde: map[string]bool{},
 	}
 
 	// Expanded sub-processes are laid out first (in their own coordinate
@@ -202,6 +207,9 @@ func merge(dst, src *Result, dx, dy float64) {
 			moved[i] = Point{pt.X + dx, pt.Y + dy}
 		}
 		dst.Edges[k] = moved
+	}
+	for k := range src.Retrograde {
+		dst.Retrograde[k] = true
 	}
 }
 
