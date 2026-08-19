@@ -201,6 +201,19 @@ func sidePts(r Rect, side nodeSide, d *docking) []Point {
 	}
 }
 
+// facePt is where an arriving edge meets a diamond's slanted border at its
+// own lane offset. The stub an edge would otherwise jog over ends at the
+// exact corner point, which every other edge on that side also uses: two
+// arrowheads there land on top of each other and one of them disappears.
+// Following the face keeps every arrowhead on its own point of the shape.
+func facePt(r Rect, side nodeSide, d *docking) Point {
+	dy := math.Abs(d.off) * r.H / r.W
+	if side == sTop {
+		return Point{r.CX() + d.off, r.Y + dy}
+	}
+	return Point{r.CX() + d.off, r.Bottom() - dy}
+}
+
 // reversed returns pts back to front, turning the points leaving a shape
 // into the points arriving at it.
 func reversed(pts []Point) []Point {
@@ -221,7 +234,12 @@ func (cl *compLayout) materializeEdges() {
 		entryX := func() float64 { return dst.CX() + pl.entry.off }
 		entryY := func() float64 { return dst.CY() + pl.entry.off }
 		leaves := func(side nodeSide) []Point { return sidePts(src, side, pl.exit) }
-		arrives := func(side nodeSide) []Point { return reversed(sidePts(dst, side, pl.entry)) }
+		arrives := func(side nodeSide) []Point {
+			if pl.entry.stub { // only a diamond stubs; arrive on its face
+				return []Point{facePt(dst, side, pl.entry)}
+			}
+			return reversed(sidePts(dst, side, pl.entry))
+		}
 
 		switch pl.kind {
 		case pkH:

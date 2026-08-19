@@ -234,6 +234,12 @@ func (g *Graph) ForwardIn(id string) []*model.SequenceFlow {
 // selectSpine picks the happy path of a component: starting at the primary
 // start event, greedily follow the first-declared forward flow whose target
 // can still reach an end event; stop at the first end event reached.
+//
+// At a loop-header gateway (a gateway a back edge returns to) the loop body
+// wins instead: the branch whose subtree feeds that back edge stays on the
+// spine and the loop exit becomes an alternate, so the loop reads as a
+// straight run with the back edge under it. An explicit HappyFlows override
+// still takes precedence.
 func (g *Graph) selectSpine(c *Component) {
 	if len(c.Nodes) == 0 {
 		return
@@ -250,13 +256,17 @@ func (g *Graph) selectSpine(c *Component) {
 		if n == nil || n.Kind == model.KindEndEvent {
 			break
 		}
-		var chosen, preferred, fallback *model.SequenceFlow
+		loopSrcs := g.loopBackSources(n)
+		var chosen, preferred, loopBody, fallback *model.SequenceFlow
 		for _, fl := range g.ForwardOut(cur) {
 			if spineSet[fl.TargetRef] {
 				continue // never revisit (paranoia; forward edges form a DAG)
 			}
 			if fallback == nil {
 				fallback = fl
+			}
+			if loopBody == nil && len(loopSrcs) > 0 && g.reachesForward(fl.TargetRef, loopSrcs) {
+				loopBody = fl
 			}
 			if canEnd[fl.TargetRef] {
 				if g.opts.HappyFlows[fl.ID] {
@@ -268,10 +278,12 @@ func (g *Graph) selectSpine(c *Component) {
 				}
 			}
 		}
-		if preferred != nil {
+		switch {
+		case preferred != nil:
 			chosen = preferred
-		}
-		if chosen == nil {
+		case loopBody != nil:
+			chosen = loopBody
+		case chosen == nil:
 			chosen = fallback // component without reachable end event
 		}
 		if chosen == nil {
@@ -285,6 +297,47 @@ func (g *Graph) selectSpine(c *Component) {
 	c.Spine = spine
 	c.SpineSet = spineSet
 	c.SpineFlows = spineFlows
+}
+
+// loopBackSources returns the sources of the back edges that close a loop at
+// this node, but only for gateways: a node without a split has no branch to
+// choose between, so the loop-header rule cannot apply to it.
+func (g *Graph) loopBackSources(n *model.FlowNode) map[string]bool {
+	if !n.Kind.IsGateway() {
+		return nil
+	}
+	var srcs map[string]bool
+	for _, fl := range g.In[n.ID] {
+		if !g.Back[fl.ID] {
+			continue
+		}
+		if srcs == nil {
+			srcs = map[string]bool{}
+		}
+		srcs[fl.SourceRef] = true
+	}
+	return srcs
+}
+
+// reachesForward reports whether any node in targets is reachable from `from`
+// over forward flows (from itself counts).
+func (g *Graph) reachesForward(from string, targets map[string]bool) bool {
+	seen := map[string]bool{from: true}
+	queue := []string{from}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if targets[cur] {
+			return true
+		}
+		for _, fl := range g.ForwardOut(cur) {
+			if !seen[fl.TargetRef] {
+				seen[fl.TargetRef] = true
+				queue = append(queue, fl.TargetRef)
+			}
+		}
+	}
+	return false
 }
 
 // primaryStart returns the first start event of the component in document
