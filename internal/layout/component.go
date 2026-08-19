@@ -423,6 +423,27 @@ func (cl *compLayout) alignChains() {
 		}
 		return out
 	}
+	var subtreeChains func(int) []int
+	subtreeChains = func(idx int) []int {
+		out := []int{idx}
+		for _, c := range children[idx] {
+			out = append(out, subtreeChains(c)...)
+		}
+		return out
+	}
+	// wants is where a chain's tail belongs relative to its merge target:
+	// under it, or a column short of it when rule L1 de-aligns the tail.
+	wants := func(ch *chain) float64 {
+		target := cl.x[ch.mergeNode]
+		if gap, deAligned := cl.rejoinGap(ch); deAligned {
+			// The clearance rule L1 reserves is a MINIMUM, not a position:
+			// it is a raw pixel distance, so landing on it exactly would
+			// park the whole subtree off the column grid. Take the nearest
+			// column at or left of it instead, which can only widen the gap.
+			target = snapDownToColumn(target - gap)
+		}
+		return target
+	}
 
 	// Children were created after their parents; reverse order shifts the
 	// deepest chains first so parent shifts keep them aligned.
@@ -432,11 +453,7 @@ func (cl *compLayout) alignChains() {
 			continue
 		}
 		tail := ch.nodes[len(ch.nodes)-1]
-		target := cl.x[ch.mergeNode]
-		if gap, deAligned := cl.rejoinGap(ch); deAligned {
-			target -= gap
-		}
-		delta := target - cl.x[tail]
+		delta := wants(ch) - cl.x[tail]
 		if delta <= 0.5 {
 			continue
 		}
@@ -456,6 +473,21 @@ func (cl *compLayout) alignChains() {
 				}
 			}
 			if !ok {
+				break
+			}
+		}
+		// Nor may it undo a descendant's own rejoin clearance. A chain
+		// deeper in the subtree that rule L1 already de-aligned is dragged
+		// along by this shift, while its merge target — outside the subtree
+		// — stays put, so the gap it needs to turn up in would close.
+		for _, ci := range subtreeChains(i) {
+			cc := cl.chains[ci]
+			if ci == i || cc.mergeNode == "" || inSubtree[cc.mergeNode] {
+				continue
+			}
+			ctail := cc.nodes[len(cc.nodes)-1]
+			if cl.x[ctail]+delta > wants(cc)+0.5 {
+				ok = false
 				break
 			}
 		}

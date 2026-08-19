@@ -124,10 +124,10 @@ Exercises:
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_AltA_di" bpmnElement="Task_AltA">
-        <dc:Bounds x="540" y="195" width="100" height="80" />
+        <dc:Bounds x="515" y="195" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_AltB_di" bpmnElement="Task_AltB">
-        <dc:Bounds x="700" y="195" width="100" height="80" />
+        <dc:Bounds x="675" y="195" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_AltC_di" bpmnElement="Task_AltC">
         <dc:Bounds x="675" y="325" width="100" height="80" />
@@ -168,17 +168,17 @@ Exercises:
       <bpmndi:BPMNEdge id="Flow_split_altA_di" bpmnElement="Flow_split_altA">
         <di:waypoint x="405" y="122" />
         <di:waypoint x="405" y="235" />
-        <di:waypoint x="540" y="235" />
+        <di:waypoint x="515" y="235" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="413" y="127" width="39" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_altA_altB_di" bpmnElement="Flow_altA_altB">
-        <di:waypoint x="640" y="235" />
-        <di:waypoint x="700" y="235" />
+        <di:waypoint x="615" y="235" />
+        <di:waypoint x="675" y="235" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_altB_join_di" bpmnElement="Flow_altB_join">
-        <di:waypoint x="800" y="235" />
+        <di:waypoint x="775" y="235" />
         <di:waypoint x="885" y="235" />
         <di:waypoint x="885" y="122" />
       </bpmndi:BPMNEdge>
