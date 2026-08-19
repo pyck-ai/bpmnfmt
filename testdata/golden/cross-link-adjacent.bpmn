@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CrossLinkAdjacent" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_CrossLinkAdjacent" name="Cross-linked chain continuation" isExecutable="true">
+    <bpmn:documentation>Rule L7 fixture: when a NON-SPINE chain walk reaches a split it continues
+into the successor whose subtree carries a forward flow into already-chained
+territory, in preference to the first-declared one.
+
+Shape: the spine is Start -&gt; Prepare -&gt; Ready to ship -&gt; End. A secondary start
+runs Receive -&gt; Sort -&gt; G_Route, and G_Route splits two ways:
+
+  declared 1st: Bundle -&gt; Pack -&gt; End_Shipped   (no link back)
+  declared 2nd: Reconcile                        (links back to Ready to ship)
+
+Reconcile is the cross-linked successor: it carries Flow_H_I into Ready to ship,
+which the spine already claimed. First-declared and cross-linked therefore
+disagree, which is the whole point of the fixture — the declaration order
+puts Bundle first on purpose.
+
+Continuing into Bundle stranded Reconcile one tier further down, and its
+cross link into Ready to ship then had no corridor and was routed around the far
+left margin of the diagram. Continuing into Reconcile keeps it on the row
+its rejoin needs, and the cross link becomes a short elbow.
+
+Exercises:
+  - Reconcile shares a row with Sort (it continues that chain),
+  - Bundle sits strictly below that row (it became the branch),
+  - the cross link is at most three waypoints and never leaves the
+    diagram's left edge.</bpmn:documentation>
+    <bpmn:startEvent id="Start_A" name="Order placed">
+      <bpmn:outgoing>Flow_A_B</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_A_B" sourceRef="Start_A" targetRef="Task_B" />
+    <bpmn:serviceTask id="Task_B" name="Prepare order">
+      <bpmn:incoming>Flow_A_B</bpmn:incoming>
+      <bpmn:outgoing>Flow_B_I</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_B_I" sourceRef="Task_B" targetRef="Task_I" />
+    <bpmn:serviceTask id="Task_I" name="Ready to ship">
+      <bpmn:incoming>Flow_B_I</bpmn:incoming>
+      <bpmn:incoming>Flow_H_I</bpmn:incoming>
+      <bpmn:outgoing>Flow_I_D</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_I_D" sourceRef="Task_I" targetRef="End_D" />
+    <bpmn:endEvent id="End_D" name="Order shipped">
+      <bpmn:incoming>Flow_I_D</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="Start_E" name="Returns arrived">
+      <bpmn:outgoing>Flow_E_F</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_E_F" sourceRef="Start_E" targetRef="Task_F" />
+    <bpmn:serviceTask id="Task_F" name="Sort returns">
+      <bpmn:incoming>Flow_E_F</bpmn:incoming>
+      <bpmn:outgoing>Flow_F_G</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_F_G" sourceRef="Task_F" targetRef="G_G" />
+    <bpmn:exclusiveGateway id="G_G" name="Restock?">
+      <bpmn:incoming>Flow_F_G</bpmn:incoming>
+      <bpmn:outgoing>Flow_G_L</bpmn:outgoing>
+      <bpmn:outgoing>Flow_G_H</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_G_L" name="scrap" sourceRef="G_G" targetRef="Task_L" />
+    <bpmn:serviceTask id="Task_L" name="Bundle for scrap">
+      <bpmn:incoming>Flow_G_L</bpmn:incoming>
+      <bpmn:outgoing>Flow_L_J</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_L_J" sourceRef="Task_L" targetRef="Task_J" />
+    <bpmn:serviceTask id="Task_J" name="Pack pallet">
+      <bpmn:incoming>Flow_L_J</bpmn:incoming>
+      <bpmn:incoming>Flow_H_J</bpmn:incoming>
+      <bpmn:outgoing>Flow_J_K</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_J_K" sourceRef="Task_J" targetRef="End_K" />
+    <bpmn:endEvent id="End_K" name="Pallet shipped">
+      <bpmn:incoming>Flow_J_K</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_G_H" name="restock" sourceRef="G_G" targetRef="Task_H" />
+    <bpmn:serviceTask id="Task_H" name="Reconcile stock">
+      <bpmn:incoming>Flow_G_H</bpmn:incoming>
+      <bpmn:outgoing>Flow_H_I</bpmn:outgoing>
+      <bpmn:outgoing>Flow_H_J</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_H_I" sourceRef="Task_H" targetRef="Task_I" />
+    <bpmn:sequenceFlow id="Flow_H_J" sourceRef="Task_H" targetRef="Task_J" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_CrossLinkAdjacent">
+      <bpmndi:BPMNShape id="Start_A_di" bpmnElement="Start_A">
+        <dc:Bounds x="73" y="72" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="56" y="115" width="69" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_B_di" bpmnElement="Task_B">
+        <dc:Bounds x="201" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_I_di" bpmnElement="Task_I">
+        <dc:Bounds x="681" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_D_di" bpmnElement="End_D">
+        <dc:Bounds x="873" y="72" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="853" y="115" width="76" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_E_di" bpmnElement="Start_E">
+        <dc:Bounds x="73" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="245" width="82" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_F_di" bpmnElement="Task_F">
+        <dc:Bounds x="201" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_G_di" bpmnElement="G_G" isMarkerVisible="true">
+        <dc:Bounds x="386" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="386" y="173" width="50" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_L_di" bpmnElement="Task_L">
+        <dc:Bounds x="361" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_J_di" bpmnElement="Task_J">
+        <dc:Bounds x="521" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_K_di" bpmnElement="End_K">
+        <dc:Bounds x="713" y="332" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="693" y="375" width="75" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_H_di" bpmnElement="Task_H">
+        <dc:Bounds x="521" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_A_B_di" bpmnElement="Flow_A_B">
+        <di:waypoint x="109" y="90" />
+        <di:waypoint x="201" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_B_I_di" bpmnElement="Flow_B_I">
+        <di:waypoint x="301" y="90" />
+        <di:waypoint x="681" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_I_D_di" bpmnElement="Flow_I_D">
+        <di:waypoint x="781" y="90" />
+        <di:waypoint x="873" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_E_F_di" bpmnElement="Flow_E_F">
+        <di:waypoint x="109" y="220" />
+        <di:waypoint x="201" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_F_G_di" bpmnElement="Flow_F_G">
+        <di:waypoint x="301" y="220" />
+        <di:waypoint x="386" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_G_L_di" bpmnElement="Flow_G_L">
+        <di:waypoint x="411" y="245" />
+        <di:waypoint x="411" y="310" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="419" y="250" width="29" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_L_J_di" bpmnElement="Flow_L_J">
+        <di:waypoint x="461" y="350" />
+        <di:waypoint x="521" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_J_K_di" bpmnElement="Flow_J_K">
+        <di:waypoint x="621" y="350" />
+        <di:waypoint x="713" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_G_H_di" bpmnElement="Flow_G_H">
+        <di:waypoint x="436" y="220" />
+        <di:waypoint x="521" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="444" y="200" width="39" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_H_I_di" bpmnElement="Flow_H_I">
+        <di:waypoint x="621" y="220" />
+        <di:waypoint x="656" y="220" />
+        <di:waypoint x="656" y="104" />
+        <di:waypoint x="681" y="104" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_H_J_di" bpmnElement="Flow_H_J">
+        <di:waypoint x="571" y="260" />
+        <di:waypoint x="571" y="310" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

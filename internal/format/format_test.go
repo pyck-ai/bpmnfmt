@@ -29,6 +29,7 @@ var fixtureNames = []string{
 	"lifted-subtree.bpmn",
 	"corridor-row-ranges.bpmn",
 	"lift-only-terminal.bpmn",
+	"cross-link-adjacent.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -486,6 +487,49 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
 	}
+}
+
+// assertNoMarginRoute fails when any flow strays left of the leftmost shape,
+// which is what a margin route around the whole diagram looks like.
+func assertNoMarginRoute(t *testing.T, p *model.Process, lay *layout.Result) {
+	t.Helper()
+	minX := math.Inf(1)
+	for _, n := range p.Nodes {
+		minX = math.Min(minX, lay.Shapes[n.ID].X)
+	}
+	for _, fl := range p.Flows {
+		for _, pt := range lay.Edges[fl.ID] {
+			if pt.X < minX-1 {
+				t.Errorf("%s is margin-routed at x=%.0f (leftmost node x=%.0f)", fl.ID, pt.X, minX)
+				break
+			}
+		}
+	}
+}
+
+// TestCrossLinkedChainContinuation: rule L7. A non-spine chain walk reaching
+// a split continues into the successor whose subtree links back into
+// already-chained territory, not the first-declared one. Task_L is declared
+// first on purpose, so the two readings disagree.
+func TestCrossLinkedChainContinuation(t *testing.T) {
+	p, _, lay := layoutOf(t, "cross-link-adjacent.bpmn")
+	cy := func(id string) float64 { r := lay.Shapes[id]; return r.Y + r.H/2 }
+
+	// Task_H carries the cross link into the spine, so it continues Task_F's
+	// chain; Task_L (first-declared, no link back) becomes the branch below.
+	if d := cy("Task_H") - cy("Task_F"); d > 0.5 || d < -0.5 {
+		t.Errorf("Task_H must continue Task_F's row (dy=%.0f): the cross-linked successor wins", d)
+	}
+	if cy("Task_L") <= cy("Task_F")+0.5 {
+		t.Errorf("Task_L must drop below Task_F's row (L=%.0f, F=%.0f)", cy("Task_L"), cy("Task_F"))
+	}
+
+	// The cross link is a short elbow, not a trip around the diagram.
+	link := lay.Edges["Flow_H_I"]
+	if len(link) > 4 {
+		t.Errorf("Flow_H_I should be a short elbow, got %d waypoints: %v", len(link), link)
+	}
+	assertNoMarginRoute(t, p, lay)
 }
 
 // TestLiftOnlyTerminalBranches: rule L5. A branch routes above its split

@@ -40,9 +40,35 @@ func decompose(g *graph.Graph, c *graph.Component) ([]*chain, map[string]int, er
 		return ch
 	}
 
-	// walk extends a chain from a start node, following first-declared
-	// forward flows into unassigned territory until it merges or dead-ends.
-	// Forward flows form a DAG, so the walk terminates.
+	// reachesClaimed reports whether the subtree hanging off an unclaimed
+	// successor carries a forward flow back into already-chained territory.
+	// The search stops at claimed nodes: it asks whether this branch links
+	// up with what is already laid out, not how far it can travel.
+	reachesClaimed := func(from string) bool {
+		seen := map[string]bool{from: true}
+		stack := []string{from}
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			for _, fl := range g.ForwardOut(cur) {
+				if _, taken := chainOf[fl.TargetRef]; taken {
+					return true
+				}
+				if !seen[fl.TargetRef] {
+					seen[fl.TargetRef] = true
+					stack = append(stack, fl.TargetRef)
+				}
+			}
+		}
+		return false
+	}
+
+	// walk extends a chain from a start node until it merges or dead-ends.
+	// At a split it continues into the successor whose subtree links back
+	// into already-chained territory (rule L7), falling back to the
+	// first-declared one; `out` is scanned in declared order, so ties
+	// resolve first-declared. Forward flows form a DAG, so the walk
+	// terminates.
 	walk := func(from string) (nodes []string, mergeNode, exitFlow string) {
 		cur := from
 		for {
@@ -55,6 +81,19 @@ func decompose(g *graph.Graph, c *graph.Component) ([]*chain, map[string]int, er
 			next := out[0]
 			if _, taken := chainOf[next.TargetRef]; taken {
 				return nodes, next.TargetRef, next.ID
+			}
+			// Prefer the cross-linked successor: continuing into the branch
+			// that rejoins keeps the chain on the row its rejoin needs,
+			// instead of stranding it a tier away and routing the cross
+			// link around the diagram.
+			for _, fl := range out {
+				if _, taken := chainOf[fl.TargetRef]; taken {
+					continue
+				}
+				if reachesClaimed(fl.TargetRef) {
+					next = fl
+					break
+				}
 			}
 			cur = next.TargetRef
 		}
