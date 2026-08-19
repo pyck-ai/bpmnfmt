@@ -208,10 +208,51 @@ func (cl *compLayout) planSky() {
 	}
 }
 
+// rankUpwardRisers ranks, per target, the source rows of the rejoins coming
+// up into its bottom face: the shallowest row gets 0 and each deeper one the
+// next index (rule M4). Every rejoin approaches from the left along its own
+// row, so a riser from a deeper row crosses the horizontal approach of every
+// shallower one unless it turns up further right — the rank IS how many
+// slots right of the target's column it must start looking.
+//
+// This is the upward counterpart of sameRowDetourGroups; the two cover
+// disjoint sets of flows (sr > dr here, sr == dr there).
+func (cl *compLayout) rankUpwardRisers() {
+	rows := map[string]map[int]bool{}
+	for _, fl := range cl.componentFlows() {
+		sr, dr := cl.rowOf[fl.SourceRef], cl.rowOf[fl.TargetRef]
+		if sr <= dr {
+			continue
+		}
+		switch classify(cl.g, cl.chains, cl.chainOf, fl) {
+		case fcExit, fcCross, fcRootExit:
+		default:
+			continue
+		}
+		if rows[fl.TargetRef] == nil {
+			rows[fl.TargetRef] = map[int]bool{}
+		}
+		rows[fl.TargetRef][sr] = true
+	}
+	for dst, set := range rows {
+		ordered := make([]int, 0, len(set))
+		for r := range set {
+			ordered = append(ordered, r)
+		}
+		sort.Ints(ordered)
+		for rank, r := range ordered {
+			cl.riserRank[riserKey(dst, r)] = rank
+		}
+	}
+}
+
+func riserKey(dst string, row int) string { return fmt.Sprintf("%s/%d", dst, row) }
+
 // planRoutes builds a symbolic routing plan per sequence flow.
 func (cl *compLayout) planRoutes() error {
 	cl.gapLanes = make([][]*laneSeg, len(cl.rows)+1)
 	cl.planSky()
+	cl.rankUpwardRisers()
 	for _, fl := range cl.componentFlows() {
 		pl := &edgePlan{id: fl.ID, src: fl.SourceRef, dst: fl.TargetRef}
 		cl.plans = append(cl.plans, pl)
@@ -360,13 +401,22 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 // because assignX aligns it under the target.
 func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
 	if dx > sx {
-		// Offsets to the RIGHT first. Every rejoin approaches from the left
-		// along its own row, so a riser coming from a deeper row has to
-		// clear the horizontal approach of every shallower one: it can only
-		// do that by turning up further right than they do. Stepping left
-		// instead puts the deeper riser straight through them.
+		// Offsets to the RIGHT, starting at this source's depth rank. Every
+		// rejoin approaches from the left along its own row, so a riser
+		// coming from a deeper row has to clear the horizontal approach of
+		// every shallower one: it can only do that by turning up further
+		// right than they do. Starting each rank one slot further right
+		// makes that ordering explicit instead of leaving it to the order
+		// the flows happen to be declared in.
 		halfW := cl.width(pl.dst)/2 - 4
-		for _, off := range []float64{0, SlotStep, 2 * SlotStep, -SlotStep, -2 * SlotStep} {
+		rank := cl.riserRank[riserKey(pl.dst, sr)]
+		offs := []float64{
+			float64(rank) * SlotStep,
+			float64(rank+1) * SlotStep,
+			float64(rank+2) * SlotStep,
+			-SlotStep, -2 * SlotStep,
+		}
+		for _, off := range offs {
 			if math.Abs(off) > halfW {
 				continue
 			}
