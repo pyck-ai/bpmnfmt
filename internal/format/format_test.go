@@ -2,6 +2,7 @@ package format
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"path/filepath"
 	"sort"
@@ -490,6 +491,61 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
+	}
+}
+
+// TestColumnGrid: rule M1 / README rule 2. Every flow-node center sits on
+// the 160px column grid of its own component, so nodes on different rows
+// line up vertically. The clearances the router reserves are minimums, not
+// positions — a raw pixel distance must always be rounded out to a column.
+func TestColumnGrid(t *testing.T) {
+	onGrid := func(t *testing.T, scope string, ids []string, lay *layout.Result) {
+		t.Helper()
+		base := math.Inf(1)
+		for _, id := range ids {
+			if r, ok := lay.Shapes[id]; ok {
+				base = math.Min(base, r.CX())
+			}
+		}
+		if math.IsInf(base, 1) {
+			return
+		}
+		for _, id := range ids {
+			r, ok := lay.Shapes[id]
+			if !ok {
+				continue
+			}
+			off := math.Mod(r.CX()-base, layout.ColPitch)
+			if off > 0.5 && off < layout.ColPitch-0.5 {
+				t.Errorf("%s: %s is %.0fpx off the column grid (cx=%.0f, leftmost=%.0f)",
+					scope, id, off, r.CX(), base)
+			}
+		}
+	}
+
+	for _, name := range fixtureNames {
+		t.Run(name, func(t *testing.T) {
+			p, g, lay := layoutOf(t, name)
+			for ci, comp := range g.Components {
+				var ids []string
+				for _, n := range comp.Nodes {
+					ids = append(ids, n.ID)
+				}
+				onGrid(t, fmt.Sprintf("component %d", ci), ids, lay)
+			}
+			// A sub-process interior is shifted into its container, so it
+			// carries its own origin; check it against its own leftmost node.
+			for _, n := range p.Nodes {
+				if n.Sub == nil {
+					continue
+				}
+				var ids []string
+				for _, in := range n.Sub.Nodes {
+					ids = append(ids, in.ID)
+				}
+				onGrid(t, "interior of "+n.ID, ids, lay)
+			}
+		})
 	}
 }
 
