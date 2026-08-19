@@ -28,6 +28,7 @@ var fixtureNames = []string{
 	"back-edge-below.bpmn",
 	"lifted-subtree.bpmn",
 	"corridor-row-ranges.bpmn",
+	"lift-only-terminal.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -483,6 +484,47 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 	for _, pt := range back {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
+		}
+	}
+}
+
+// TestLiftOnlyTerminalBranches: rule L5. A branch routes above its split
+// only when its whole subtree is terminal. Both alternates here re-merge at
+// G_Join, so neither may lift however short it is — a lifted branch would
+// have to come back down across the spine to reach its merge node.
+func TestLiftOnlyTerminalBranches(t *testing.T) {
+	p, _, lay := layoutOf(t, "lift-only-terminal.bpmn")
+	cy := func(id string) float64 { r := lay.Shapes[id]; return r.Y + r.H/2 }
+	spine := cy("G_Split")
+
+	for _, n := range p.Nodes {
+		if cy(n.ID) < spine-0.5 {
+			t.Errorf("%s sits above the split (cy=%.0f, split=%.0f); a re-merging branch must hang below",
+				n.ID, cy(n.ID), spine)
+		}
+	}
+	// The two re-merging alternates stack on two distinct rows below.
+	a, b := cy("Task_A1"), cy("Task_B1")
+	if a <= spine || b <= spine {
+		t.Errorf("both alternates must hang below the spine (A1=%.0f, B1=%.0f, spine=%.0f)", a, b, spine)
+	}
+	if math.Abs(a-b) < 0.5 {
+		t.Errorf("the two alternates must occupy distinct rows (both cy=%.0f)", a)
+	}
+	if cy("Task_A2") != a || cy("Task_B2") != b {
+		t.Error("each alternate must keep its two tasks on one row")
+	}
+	// Both rejoins rise into G_Join from below.
+	join := lay.Shapes["G_Join"]
+	for _, id := range []string{"Flow_a2_join", "Flow_b2_join"} {
+		pts := lay.Edges[id]
+		if len(pts) < 2 {
+			t.Fatalf("%s has too few waypoints: %v", id, pts)
+		}
+		last, prev := pts[len(pts)-1], pts[len(pts)-2]
+		if last.Y > join.Bottom()+0.5 || prev.Y <= last.Y {
+			t.Errorf("%s must rise into G_Join from below (%v -> %v, gateway bottom %.0f)",
+				id, prev, last, join.Bottom())
 		}
 	}
 }
