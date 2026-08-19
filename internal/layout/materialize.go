@@ -162,14 +162,11 @@ func (cl *compLayout) materializeY() {
 	}
 }
 
-// laneY returns the y of a lane in a gap. Gap 0 stacks long spans on top
-// (loops over the spine); deeper gaps stack long spans toward the bottom
-// (loops under a row) — both orders avoid crossings between nested loops.
+// laneY places lane 0 (the widest segment) at the bottom of the gap,
+// furthest from the row above whose under-arcs the gap carries, so wider
+// arcs nest outside narrower ones.
 func (cl *compLayout) laneY(g, lane int) float64 {
 	n := cl.laneCount(g)
-	if g == 0 {
-		return cl.gapTop[g] + LanePad + float64(lane)*LaneStep
-	}
 	return cl.gapTop[g] + LanePad + float64(n-1-lane)*LaneStep
 }
 
@@ -208,6 +205,10 @@ func (cl *compLayout) materializeEdges() {
 			x := src.CX() + pl.exit.off
 			pts = []Point{{x, src.Bottom()}, {x, dst.CY()}, {dst.X, dst.CY()}}
 
+		case pkUpLeftIn:
+			x := src.CX() + pl.exit.off
+			pts = []Point{{x, src.Y}, {x, dst.CY()}, {dst.X, dst.CY()}}
+
 		case pkDownJog:
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
 			pts = []Point{
@@ -242,30 +243,17 @@ func (cl *compLayout) materializeEdges() {
 				}
 			}
 
-		case pkLoopTop:
-			ly2 := cl.laneY(pl.g2, pl.seg2.lane)
-			if pl.seg1 != nil {
-				ly1 := cl.laneY(pl.g1, pl.seg1.lane)
-				pts = []Point{
-					{exitX(), src.Y}, {exitX(), ly1}, {pl.corrX, ly1},
-					{pl.corrX, ly2}, {entryX(), ly2}, {entryX(), dst.Y},
-				}
-			} else {
-				pts = []Point{
-					{exitX(), src.Y}, {exitX(), ly2}, {entryX(), ly2}, {entryX(), dst.Y},
-				}
+		case pkUnderRow:
+			ly := cl.laneY(pl.g1, pl.seg1.lane)
+			pts = []Point{
+				{exitX(), src.Bottom()}, {exitX(), ly},
+				{entryX(), ly}, {entryX(), dst.Bottom()},
 			}
 
 		case pkRootMerge:
 			pts = []Point{
 				{src.Right(), src.CY()}, {pl.corrX, src.CY()},
 				{pl.corrX, dst.CY()}, {dst.X, dst.CY()},
-			}
-
-		case pkOverRow:
-			ly := cl.laneY(pl.g1, pl.seg1.lane)
-			pts = []Point{
-				{exitX(), src.Y}, {exitX(), ly}, {entryX(), ly}, {entryX(), dst.Y},
 			}
 
 		case pkBackBottom:
@@ -280,12 +268,15 @@ func (cl *compLayout) materializeEdges() {
 			ly1 := cl.laneY(pl.g1, pl.seg1.lane)
 			ly2 := cl.laneY(pl.g2, pl.seg2.lane)
 			start := Point{exitX(), src.Bottom()}
-			if cl.rowOf[pl.src] < cl.rowOf[pl.dst] {
+			end := Point{entryX(), dst.Y}
+			if pl.backEntry {
+				end = Point{entryX(), dst.Bottom()}
+			} else if cl.rowOf[pl.src] < cl.rowOf[pl.dst] {
 				start = Point{exitX(), src.Y}
 			}
 			pts = []Point{
 				start, {exitX(), ly1}, {mx, ly1},
-				{mx, ly2}, {entryX(), ly2}, {entryX(), dst.Y},
+				{mx, ly2}, {entryX(), ly2}, end,
 			}
 		}
 		cl.res.Edges[pl.id] = cleanPath(pts)

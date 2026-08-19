@@ -57,15 +57,15 @@ const (
 	pkVDown                      // straight vertical, source above target
 	pkVUp                        // straight vertical, source below target
 	pkDownLeftIn                 // exit bottom, drop beside the source, enter left side
+	pkUpLeftIn                   // exit top, rise beside the source, enter left side
 	pkDownJog                    // exit bottom, lane below source row, corridor down, enter left side
 	pkDownTop                    // exit bottom, lane below source row, corridor down, lane above target row, enter top
 	pkRightUp                    // exit right, horizontal to the target column, straight up into the bottom
 	pkUpBottom                   // exit top, corridor up (optional jog), lane below target row, enter bottom
-	pkLoopTop                    // exit top, corridor up (optional jog), lane above target row, enter top
 	pkRootMerge                  // exit right, bend before the target, enter left side
-	pkOverRow                    // exit top, lane above own row, enter target top
-	pkBackBottom                 // exit bottom, lane below source row, corridor up, enter bottom
-	pkBackMargin                 // around the outside via the margin corridor, enter top
+	pkUnderRow                   // exit bottom, lane below own row, enter target bottom
+	pkBackBottom                 // exit bottom, way-back line below the lower row, corridor up, enter bottom
+	pkBackMargin                 // around the outside via the margin corridor
 )
 
 type edgePlan struct {
@@ -79,6 +79,7 @@ type edgePlan struct {
 	g1, g2    int
 	corrX     float64
 	marginIdx int
+	backEntry bool // pkBackMargin: enter the target's bottom (way-back edges)
 }
 
 // planRoutes builds a symbolic routing plan per sequence flow.
@@ -98,13 +99,13 @@ func (cl *compLayout) planRoutes() error {
 			pl.kind = pkH
 
 		case fcEntry:
-			cl.planDownward(pl, sr, dr, sx, dx, aligned)
+			cl.planBranchEntry(pl, sr, dr)
 
 		case fcExit, fcCross:
 			switch {
 			case sr == dr:
 				if cl.nodesBetween(sr, cl.right(pl.src), cl.left(pl.dst)) {
-					cl.planOverRow(pl, sr)
+					cl.planUnderRow(pl, sr)
 				} else {
 					pl.kind = pkH
 				}
@@ -118,14 +119,7 @@ func (cl *compLayout) planRoutes() error {
 			cl.planRootMerge(pl, sr, dr)
 
 		case fcBack:
-			switch {
-			case sr == dr:
-				cl.planOverRow(pl, sr)
-			case sr > dr:
-				cl.planLoopUp(pl, sr, dr, sx, dx)
-			default:
-				cl.planMargin(pl, sr, dr)
-			}
+			cl.planBack(pl, sr, dr, sx, dx)
 		}
 	}
 	cl.assignLanes()
@@ -137,6 +131,23 @@ func (cl *compLayout) left(id string) float64  { return cl.x[id] - cl.width(id)/
 func (cl *compLayout) right(id string) float64 { return cl.x[id] + cl.width(id)/2 }
 
 // planDownward: source row above target row, forward direction.
+// planBranchEntry routes a split's alternate branch: leave the gateway
+// through the top or bottom corner, run vertically in the gateway's own
+// column, then turn once into the branch head's left side. Every alternate
+// of one gateway shares that column, forming a single trunk.
+func (cl *compLayout) planBranchEntry(pl *edgePlan, sr, dr int) {
+	gx := cl.x[pl.src]
+	side := sBottom
+	pl.kind = pkDownLeftIn
+	if sr > dr { // branch lifted above its split node
+		side = sTop
+		pl.kind = pkUpLeftIn
+	}
+	pl.corrX = gx
+	pl.exit = cl.dock(pl.id, pl.src, side, gx, true, 0)
+	cl.useCorridor(gx, trunk(pl.src, side))
+}
+
 func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
 	if aligned && cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx, trunk(pl.dst, sTop)) {
 		pl.kind = pkVDown
@@ -177,7 +188,7 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 		pl.entry = cl.dock(pl.id, pl.dst, sTop, corr, false, 0)
 		return
 	}
-	cl.planMargin(pl, sr, dr)
+	cl.planMargin(pl, sr, dr, false)
 }
 
 // planUpward: source row below target row, forward direction (rejoin).
@@ -227,7 +238,7 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 		pl.entry = cl.dock(pl.id, pl.dst, sBottom, corr, false, 0)
 		return
 	}
-	cl.planMargin(pl, sr, dr)
+	cl.planMargin(pl, sr, dr, false)
 }
 
 // planRootMerge: secondary-start chains fan into the merge target's left side.
@@ -243,69 +254,72 @@ func (cl *compLayout) planRootMerge(pl *edgePlan, sr, dr int) {
 	cl.planUpward(pl, sr, dr, cl.x[pl.src], cl.x[pl.dst], false)
 }
 
-// planOverRow: hop or loop through the gap above the shared row.
-func (cl *compLayout) planOverRow(pl *edgePlan, row int) {
-	pl.kind = pkOverRow
-	pl.g1 = row
-	pl.seg1 = cl.lane(row, pl.id, cl.x[pl.src], cl.x[pl.dst])
-	pl.exit = cl.dock(pl.id, pl.src, sTop, cl.x[pl.dst], false, 0)
-	pl.entry = cl.dock(pl.id, pl.dst, sTop, cl.x[pl.src], false, 0)
+// planUnderRow: forward hop past intervening nodes on the shared row,
+// dipping through the gap below the row (the space above rows is reserved
+// for lifted branches).
+func (cl *compLayout) planUnderRow(pl *edgePlan, row int) {
+	pl.kind = pkUnderRow
+	pl.g1 = row + 1
+	pl.seg1 = cl.lane(row+1, pl.id, cl.x[pl.src], cl.x[pl.dst])
+	pl.exit = cl.dock(pl.id, pl.src, sBottom, cl.x[pl.dst], false, 0)
+	pl.entry = cl.dock(pl.id, pl.dst, sBottom, cl.x[pl.src], false, 0)
 }
 
-// planLoopUp: back edge whose target row lies above the source row.
-func (cl *compLayout) planLoopUp(pl *edgePlan, sr, dr int, sx, dx float64) {
-	// Preferred: under the source row, then straight up into the target's
-	// bottom ("loops back under").
+// planBack: every way-back edge drops from the source's bottom to a
+// dedicated line in the gap below the lower of the two rows, runs backward,
+// and rises into the target's bottom.
+func (cl *compLayout) planBack(pl *edgePlan, sr, dr int, sx, dx float64) {
+	band := sr + 1
+	if dr > sr {
+		band = dr + 1
+	}
+	// The drop from the source crosses every row between the source row and
+	// the band; the rise to the target likewise. Both columns must be clear
+	// of shapes. Vertical-vs-vertical proximity is not checked: way-back
+	// lines may share columns and may be crossed.
 	halfW := cl.width(pl.dst)/2 - 4
 	for _, off := range []float64{0, -SlotStep, SlotStep, -2 * SlotStep, 2 * SlotStep} {
 		if math.Abs(off) > halfW {
 			continue
 		}
 		x := dx + off
-		if cl.corridorClear(x, dr+1, sr) && cl.corridorFree(x, trunk(pl.dst, sBottom)) {
+		if cl.corridorClear(x, dr+1, band-1) && cl.corridorClear(sx, sr+1, band-1) {
 			cl.useCorridor(x, trunk(pl.dst, sBottom))
 			pl.kind = pkBackBottom
 			pl.corrX = x
-			pl.g1 = sr + 1
-			pl.seg1 = cl.lane(sr+1, pl.id, sx, x)
+			pl.g1 = band
+			pl.seg1 = cl.lane(band, pl.id, sx, x)
 			pl.exit = cl.dock(pl.id, pl.src, sBottom, x, false, 0)
 			pl.entry = cl.dock(pl.id, pl.dst, sBottom, x, true, x-dx)
 			return
 		}
 	}
-	// Second choice: up beside the source, over the target row, into its top.
-	if corr, ok := cl.findCorridor([]float64{sx}, dr, sr-1, nil); ok {
-		pl.kind = pkLoopTop
-		pl.corrX = corr
-		if corr != sx {
-			pl.g1 = sr
-			pl.seg1 = cl.lane(sr, pl.id, sx, corr)
-		}
-		pl.g2 = dr
-		pl.seg2 = cl.lane(dr, pl.id, corr, dx)
-		pl.exit = cl.dock(pl.id, pl.src, sTop, corr, false, 0)
-		pl.entry = cl.dock(pl.id, pl.dst, sTop, corr, false, 0)
-		return
-	}
-	cl.planMargin(pl, sr, dr)
+	cl.planMargin(pl, sr, dr, true)
 }
 
-// planMargin routes around the far left of the component.
-func (cl *compLayout) planMargin(pl *edgePlan, sr, dr int) {
+// planMargin routes around the far left of the component. Back edges enter
+// the target's bottom; forward flows keep entering the top.
+func (cl *compLayout) planMargin(pl *edgePlan, sr, dr int, backEntry bool) {
 	pl.kind = pkBackMargin
+	pl.backEntry = backEntry
 	pl.marginIdx = cl.marginUse
 	cl.marginUse++
-	if sr >= dr { // exit below the source row, travel up at the margin
+	if backEntry || sr >= dr { // exit below the source row
 		pl.g1 = sr + 1
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, marginSentinel, false, 0)
 	} else { // exit above the source row, travel down at the margin
 		pl.g1 = sr
 		pl.exit = cl.dock(pl.id, pl.src, sTop, marginSentinel, false, 0)
 	}
-	pl.g2 = dr
+	if backEntry {
+		pl.g2 = dr + 1
+		pl.entry = cl.dock(pl.id, pl.dst, sBottom, marginSentinel, false, 0)
+	} else {
+		pl.g2 = dr
+		pl.entry = cl.dock(pl.id, pl.dst, sTop, marginSentinel, false, 0)
+	}
 	pl.seg1 = cl.lane(pl.g1, pl.id, cl.x[pl.src], marginSentinel)
 	pl.seg2 = cl.lane(pl.g2, pl.id, marginSentinel, cl.x[pl.dst])
-	pl.entry = cl.dock(pl.id, pl.dst, sTop, marginSentinel, false, 0)
 }
 
 // --- helpers -----------------------------------------------------------------

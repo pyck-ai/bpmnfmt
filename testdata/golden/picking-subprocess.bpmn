@@ -154,7 +154,7 @@
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="info-expired_di" bpmnElement="info-expired">
-        <dc:Bounds x="1302" y="278" width="100" height="80" />
+        <dc:Bounds x="1462" y="278" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="confirm-pick_di" bpmnElement="confirm-pick">
         <dc:Bounds x="1462" y="129" width="100" height="80" />
@@ -181,7 +181,7 @@
         <dc:Bounds x="1136" y="90" width="111" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_InfoExpired_di" bpmnElement="TextAnnotation_InfoExpired">
-        <dc:Bounds x="1383" y="239" width="97" height="25" />
+        <dc:Bounds x="1463" y="239" width="97" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_ConfirmPick_di" bpmnElement="TextAnnotation_ConfirmPick">
         <dc:Bounds x="1461" y="90" width="101" height="25" />
@@ -240,14 +240,15 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_gateway_no_di" bpmnElement="Flow_gateway_no">
         <di:waypoint x="1352" y="194" />
-        <di:waypoint x="1352" y="278" />
+        <di:waypoint x="1352" y="318" />
+        <di:waypoint x="1462" y="318" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="1360" y="199" width="13" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_info_to_bestbefore_di" bpmnElement="Flow_info_to_bestbefore">
-        <di:waypoint x="1352" y="358" />
-        <di:waypoint x="1352" y="376" />
+        <di:waypoint x="1512" y="358" />
+        <di:waypoint x="1512" y="376" />
         <di:waypoint x="1192" y="376" />
         <di:waypoint x="1192" y="209" />
       </bpmndi:BPMNEdge>
@@ -283,8 +284,8 @@
         <di:waypoint x="1192" y="115" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_InfoExpired_di" bpmnElement="Association_InfoExpired">
-        <di:waypoint x="1400" y="278" />
-        <di:waypoint x="1417" y="264" />
+        <di:waypoint x="1512" y="278" />
+        <di:waypoint x="1512" y="264" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_ConfirmPick_di" bpmnElement="Association_ConfirmPick">
         <di:waypoint x="1512" y="129" />

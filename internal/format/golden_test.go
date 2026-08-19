@@ -16,7 +16,7 @@ func TestGolden(t *testing.T) {
 	for _, name := range fixtureNames {
 		t.Run(name, func(t *testing.T) {
 			f := fixture(t, name)
-			res, err := File(f, Options{})
+			res, err := File(f, optsFor(name))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -183,13 +183,21 @@ func scopeList(p *model.Process) []*model.Process {
 // CountCrossings counts transversal crossings between sequence flow segments
 // (associations excluded; touching endpoints and collinear overlaps do not
 // count).
+// CountCrossings counts forbidden edge crossings. Way-back edges occupy
+// dedicated lines below their rows on which crossings are explicitly
+// allowed, so any pair involving a back edge is skipped; the nesting of
+// way-back lines is guarded by geometry assertions instead.
 func CountCrossings(p *model.Process, res *Result) int {
 	type seg struct {
 		a, b Point
 		edge string
 	}
+	back := map[string]bool{}
 	var segs []seg
 	for _, sc := range scopeList(p) {
+		for id := range graph.Build(sc).Back {
+			back[id] = true
+		}
 		for _, fl := range sc.Flows {
 			pts := res.Edges[fl.ID]
 			for i := 0; i+1 < len(pts); i++ {
@@ -202,6 +210,9 @@ func CountCrossings(p *model.Process, res *Result) int {
 		for j := i + 1; j < len(segs); j++ {
 			if segs[i].edge == segs[j].edge {
 				continue
+			}
+			if back[segs[i].edge] || back[segs[j].edge] {
+				continue // crossings on way-back lines are allowed
 			}
 			if properCrossing(segs[i].a, segs[i].b, segs[j].a, segs[j].b) {
 				count++

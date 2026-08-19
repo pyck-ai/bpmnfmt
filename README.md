@@ -54,23 +54,34 @@ deterministic and idempotent.
 
 1. **Happy path on one row, left to right.** Selected by following the
    first-declared forward flow at each split (backtracking to reach an end
-   event); override with `-happy-end` / `-happy-flow`.
+   event); override with `-happy-end` / `-happy-flow`. Both options apply to
+   the top-level process only — they are silently ignored inside expanded
+   embedded sub-processes.
 2. **Grid.** Node centers snap to a 160px column grid and shared row
    centerlines — elements line up horizontally and vertically.
-3. **Branches hang below** the gateway in tiers; disjoint branches may
-   share a tier; nested branches stack deeper.
+3. **Branches use the gateway's corners.** A spine gateway with exactly
+   three outgoing flows uses all three corners of the diamond: the happy
+   path runs straight through, the shorter alternate leaves the top corner,
+   the longer the bottom (a branch that loops back never goes up). With
+   four or more outgoing flows the top corner stays unused and every
+   alternate hangs below, stacked longest-first. Entry edges drop in the
+   gateway's own column and turn once into the branch head's left side;
+   branch heads align with the happy successor's column. Gateways inside a
+   branch always stack their alternates below.
 4. **Straight rejoins.** Branch tails align under their merge target and
    rise vertically into its bottom edge.
-5. **Loops in channels.** Back edges travel above the spine or under their
-   own tier through node-free corridors — never through shapes. Chains that
-   loop far back are placed below the rows their lane would sweep across.
+5. **Way-back lines.** Every back edge leaves its source's bottom, drops
+   to a dedicated horizontal line directly below the lower of the two rows,
+   runs backward, and rises into the target's bottom. Crossings are allowed
+   on these lines (and only there); multiple loops get stacked lines, wider
+   ones nesting outside narrower ones.
 6. **Orthogonal edges**, few bends, dockings spread per node side.
 7. **Annotations**: short notes sit in a band directly above their anchor;
    prose notes are parked above or below the diagram with a short, clear
    association line.
 
 The layouter validates its own output: no overlaps, no edge through a
-shape, no leftward forward flows, straight spine, zero edge crossings on
+shape, no leftward forward flows, straight spine, zero forbidden edge crossings on
 the test corpus.
 
 ## Lint rules

@@ -136,6 +136,12 @@ func (cl *compLayout) assignX() error {
 	}
 	cons := map[string][]constr{}
 
+	// Room-rule dependencies (filled below) also carry the branch-head
+	// alignment edges, which are not sequence flows and so need explicit
+	// topological dependencies.
+	extraOut := map[string][]string{}
+	extraDeps := map[string]int{}
+
 	for _, ch := range cl.chains {
 		for i, id := range ch.nodes {
 			if i > 0 {
@@ -145,8 +151,42 @@ func (cl *compLayout) assignX() error {
 		}
 		head := ch.nodes[0]
 		if ch.parentNode != "" {
-			// Branch heads align directly below their split node.
-			cons[head] = append(cons[head], constr{ch.parentNode, 0})
+			// Branch heads align with the column of the split's happy-path
+			// successor, so every row's first element starts in the same
+			// column and the entry edge turns a single corner into the
+			// head's left side.
+			succ := ""
+			for _, fl := range cl.g.ForwardOut(ch.parentNode) {
+				if fl.ID != ch.entryFlow {
+					succ = fl.TargetRef
+					break
+				}
+			}
+			// Aligning to a successor that sits at or past this branch's
+			// rejoin point would close a cycle: the merge node is already
+			// constrained to at-or-right-of the branch tail, which is
+			// right of the head. Fall back to one column step right of the
+			// split instead.
+			usable := succ != "" && cl.chainOf[succ] == ch.parent
+			if usable && ch.mergeNode != "" && cl.chainOf[ch.mergeNode] == ch.parent {
+				pos := func(id string) int {
+					for i, n := range cl.chains[ch.parent].nodes {
+						if n == id {
+							return i
+						}
+					}
+					return -1
+				}
+				usable = pos(succ) >= 0 && pos(succ) < pos(ch.mergeNode)
+			}
+			if usable {
+				cons[head] = append(cons[head], constr{succ, 0})
+				extraOut[succ] = append(extraOut[succ], head)
+				extraDeps[head]++
+			} else {
+				cons[head] = append(cons[head], constr{ch.parentNode,
+					(cl.spacingWidth(ch.parentNode)+cl.spacingWidth(head))/2 + GapX})
+			}
 		}
 		if ch.mergeNode != "" {
 			last := ch.nodes[len(ch.nodes)-1]
@@ -172,8 +212,6 @@ func (cl *compLayout) assignX() error {
 	// skips over, so its rejoin can rise straight up instead of weaving
 	// around the ancestor's nodes. These constraints are not sequence
 	// flows, so they need explicit topological dependencies.
-	extraOut := map[string][]string{}
-	extraDeps := map[string]int{}
 	for _, ch := range cl.chains {
 		if ch.mergeNode == "" || ch.isRoot || ch.parent < 0 {
 			continue
@@ -323,10 +361,16 @@ type span struct{ lo, hi float64 }
 
 // assignRows places each chain in the highest tier that is strictly below
 // its parent chain and free of horizontal overlap (rule R4: tier sharing).
-// Chains that end in a loop back to an earlier row are placed below every
-// row their loop lane would sweep across, keeping the lane crossing-free.
+// The branches of one split node are placed longest-first, so the longest
+// alternate sits directly next to its parent's row and the shortest ends up
+// furthest away.
+//
+// Placement runs in a spine-relative index space: the spine starts at 0, a
+// lifted chain and its subtree take negative indices, and the whole
+// component is shifted back into non-negative indices at the end, so the
+// spine lands on row 1+ whenever a branch was lifted.
 func (cl *compLayout) assignRows() {
-	var rowIntervals [][]span
+	rowIntervals := map[int][]span{}
 
 	overlapRow := func(row int, iv span) bool {
 		for _, o := range rowIntervals[row] {
@@ -337,21 +381,20 @@ func (cl *compLayout) assignRows() {
 		return false
 	}
 
-	place := func(ch *chain, minRow int) {
+	// place puts a chain on the first overlap-free row starting at from and
+	// stepping by step (+1 = downward, -1 = upward).
+	place := func(ch *chain, from, step int) {
 		head, tail := ch.nodes[0], ch.nodes[len(ch.nodes)-1]
-		iv := span{
-			cl.x[head] - cl.width(head)/2 - ChainPad,
-			cl.x[tail] + cl.width(tail)/2 + ChainPad,
+		lo := cl.x[head] - cl.width(head)/2 - ChainPad
+		if ch.parentNode != "" {
+			// The entry edge turns a corner at the split's column, so the
+			// row is occupied from there rather than from the head.
+			lo = math.Min(lo, cl.x[ch.parentNode]-ChainPad)
 		}
-		row := minRow
-		for {
-			for len(rowIntervals) <= row {
-				rowIntervals = append(rowIntervals, nil)
-			}
-			if !overlapRow(row, iv) {
-				break
-			}
-			row++
+		iv := span{lo, cl.x[tail] + cl.width(tail)/2 + ChainPad}
+		row := from
+		for overlapRow(row, iv) {
+			row += step
 		}
 		rowIntervals[row] = append(rowIntervals[row], iv)
 		ch.row = row
@@ -360,33 +403,75 @@ func (cl *compLayout) assignRows() {
 		}
 	}
 
+	// dir records the direction each chain was placed in. A branch lifted
+	// above the spine takes its whole subtree with it: descendants inherit
+	// the direction, so they stack away from the spine instead of crossing
+	// back over it.
+	dir := map[int]int{}
+
+	// Placement order: parents before children, and the branches of one
+	// split node longest-first. The sort is stable and only reorders chains
+	// sharing a parentNode, so branches of different split nodes keep their
+	// declaration order and cross-gateway tier sharing is unaffected.
+	children := map[int][]int{}
+	order := make([]int, 0, len(cl.chains))
+	queue := make([]int, 0, len(cl.chains))
 	for _, ch := range cl.chains {
 		if ch.parent == -1 {
-			place(ch, 0)
+			queue = append(queue, ch.idx)
 			continue
 		}
-		minRow := cl.chains[ch.parent].row + 1
+		children[ch.parent] = append(children[ch.parent], ch.idx)
+	}
+	for len(queue) > 0 {
+		idx := queue[0]
+		queue = queue[1:]
+		order = append(order, idx)
 
-		// Loop sweep: a back edge leaving this chain will run a lane under
-		// the chain's row from the loop source to the loop target. Demote
-		// the chain below every already-placed row that overlaps the sweep.
-		for _, id := range ch.nodes {
-			for _, fl := range cl.g.Out[id] {
-				if !cl.g.Back[fl.ID] || cl.chainOf[fl.TargetRef] == ch.idx {
-					continue
-				}
-				sweep := span{
-					math.Min(cl.x[fl.TargetRef], cl.x[id]) - ChainPad,
-					math.Max(cl.x[fl.TargetRef], cl.x[id]) + ChainPad,
-				}
-				for r := minRow; r < len(rowIntervals); r++ {
-					if overlapRow(r, sweep) && r+1 > minRow {
-						minRow = r + 1
-					}
-				}
+		kids := append([]int(nil), children[idx]...)
+		sort.SliceStable(kids, func(i, j int) bool {
+			a, b := cl.chains[kids[i]], cl.chains[kids[j]]
+			if a.parentNode != b.parentNode {
+				return false
+			}
+			if a.weight != b.weight {
+				return a.weight > b.weight
+			}
+			return len(a.nodes) > len(b.nodes)
+		})
+		queue = append(queue, kids...)
+	}
+
+	for _, idx := range order {
+		ch := cl.chains[idx]
+		if ch.parent == -1 {
+			dir[ch.idx] = 1
+			place(ch, 0, 1)
+			continue
+		}
+		if ch.lifted || dir[ch.parent] == -1 {
+			dir[ch.idx] = -1
+			place(ch, cl.chains[ch.parent].row-1, -1)
+			continue
+		}
+		dir[ch.idx] = 1
+		place(ch, cl.chains[ch.parent].row+1, 1)
+	}
+
+	// Shift the spine-relative rows into non-negative indices.
+	shift := 0
+	for _, ch := range cl.chains {
+		if ch.row < shift {
+			shift = ch.row
+		}
+	}
+	if shift < 0 {
+		for _, ch := range cl.chains {
+			ch.row -= shift
+			for _, id := range ch.nodes {
+				cl.rowOf[id] = ch.row
 			}
 		}
-		place(ch, minRow)
 	}
 
 	nRows := 0
