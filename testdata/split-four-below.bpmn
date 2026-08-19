@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_SplitFourBelow" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_SplitFourBelow" name="Split four below" isExecutable="true">
+    <bpmn:documentation>Rule B fixture: a split with FOUR outgoing flows lifts nothing. Every
+alternate hangs below the spine, no matter how short it is.
+
+Shape: Start -&gt; Classify -&gt; Gateway_FourWaySplit -&gt; Ship -&gt; End (happy path),
+plus three dead-ending alternates of 3, 2 and 1 tasks. The alternate lengths
+are deliberately unequal: with only three outgoing flows the shortest one
+would have been lifted above the spine (rule A), so a lift here would be a
+rule-B regression rather than a coincidence.
+
+All three alternate heads align to the happy successor's column, so their row
+extents overlap and none of them may share a tier.
+
+Exercises:
+  - nothing above the spine row (the spine is the topmost row),
+  - three alternates on three distinct rows below the spine.</bpmn:documentation>
+    <bpmn:startEvent id="Start_FourWay" name="Parcel scanned">
+      <bpmn:outgoing>Flow_start_to_classify</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_classify" sourceRef="Start_FourWay" targetRef="Task_Classify" />
+    <bpmn:serviceTask id="Task_Classify" name="Classify parcel">
+      <bpmn:incoming>Flow_start_to_classify</bpmn:incoming>
+      <bpmn:outgoing>Flow_classify_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_classify_to_split" sourceRef="Task_Classify" targetRef="Gateway_FourWaySplit" />
+    <bpmn:exclusiveGateway id="Gateway_FourWaySplit" name="Route?">
+      <bpmn:incoming>Flow_classify_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_four_happy</bpmn:outgoing>
+      <bpmn:outgoing>Flow_four_hold</bpmn:outgoing>
+      <bpmn:outgoing>Flow_four_return</bpmn:outgoing>
+      <bpmn:outgoing>Flow_four_cancel</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_four_happy" name="ship" sourceRef="Gateway_FourWaySplit" targetRef="Task_Ship" />
+    <bpmn:sequenceFlow id="Flow_four_hold" name="hold" sourceRef="Gateway_FourWaySplit" targetRef="Task_HoldInspect" />
+    <bpmn:sequenceFlow id="Flow_four_return" name="return" sourceRef="Gateway_FourWaySplit" targetRef="Task_ReturnLabel" />
+    <bpmn:sequenceFlow id="Flow_four_cancel" name="cancel" sourceRef="Gateway_FourWaySplit" targetRef="Task_CancelParcel" />
+    <bpmn:serviceTask id="Task_Ship" name="Ship parcel">
+      <bpmn:incoming>Flow_four_happy</bpmn:incoming>
+      <bpmn:outgoing>Flow_ship_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_ship_to_end" sourceRef="Task_Ship" targetRef="End_Shipped" />
+    <bpmn:endEvent id="End_Shipped" name="Parcel shipped">
+      <bpmn:incoming>Flow_ship_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_HoldInspect" name="Inspect parcel">
+      <bpmn:incoming>Flow_four_hold</bpmn:incoming>
+      <bpmn:outgoing>Flow_holdinspect_to_holdrepack</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_holdinspect_to_holdrepack" sourceRef="Task_HoldInspect" targetRef="Task_HoldRepack" />
+    <bpmn:serviceTask id="Task_HoldRepack" name="Repack parcel">
+      <bpmn:incoming>Flow_holdinspect_to_holdrepack</bpmn:incoming>
+      <bpmn:outgoing>Flow_holdrepack_to_holdrelease</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_holdrepack_to_holdrelease" sourceRef="Task_HoldRepack" targetRef="Task_HoldRelease" />
+    <bpmn:serviceTask id="Task_HoldRelease" name="Release hold">
+      <bpmn:incoming>Flow_holdrepack_to_holdrelease</bpmn:incoming>
+      <bpmn:outgoing>Flow_holdrelease_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_holdrelease_to_end" sourceRef="Task_HoldRelease" targetRef="End_Held" />
+    <bpmn:endEvent id="End_Held" name="Parcel held">
+      <bpmn:incoming>Flow_holdrelease_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_ReturnLabel" name="Print return label">
+      <bpmn:incoming>Flow_four_return</bpmn:incoming>
+      <bpmn:outgoing>Flow_returnlabel_to_returnhandover</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_returnlabel_to_returnhandover" sourceRef="Task_ReturnLabel" targetRef="Task_ReturnHandover" />
+    <bpmn:serviceTask id="Task_ReturnHandover" name="Hand over to carrier">
+      <bpmn:incoming>Flow_returnlabel_to_returnhandover</bpmn:incoming>
+      <bpmn:outgoing>Flow_returnhandover_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_returnhandover_to_end" sourceRef="Task_ReturnHandover" targetRef="End_Returned" />
+    <bpmn:endEvent id="End_Returned" name="Parcel returned">
+      <bpmn:incoming>Flow_returnhandover_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_CancelParcel" name="Cancel shipment">
+      <bpmn:incoming>Flow_four_cancel</bpmn:incoming>
+      <bpmn:outgoing>Flow_cancelparcel_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_cancelparcel_to_end" sourceRef="Task_CancelParcel" targetRef="End_Cancelled" />
+    <bpmn:endEvent id="End_Cancelled" name="Parcel cancelled">
+      <bpmn:incoming>Flow_cancelparcel_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SplitFourBelow">
+    <bpmndi:BPMNPlane id="BPMNPlane_SplitFourBelow" bpmnElement="Process_SplitFourBelow" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

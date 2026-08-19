@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_SplitLastInChain" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_SplitLastInChain" name="Split last in chain" isExecutable="true">
+    <bpmn:documentation>Cycle-guard fixture for rule D.
+
+Rule D aligns a branch head with the column of its split's happy-path
+successor. When the split node is the LAST node of its chain, that successor
+is the node the branch itself merges back into — and the merge node is
+already constrained to sit at or right of the branch's own tail. Constraining
+the head against it would close a cycle and assignX would fail with
+"forward flows contain a cycle".
+
+Shape: Start -&gt; Prepare -&gt; Gateway_Route, where Gateway_Route is the last
+node of the spine chain. Its "direct" flow goes straight to Consolidate; its
+"review" flow runs through a branch task that merges back into that same
+Consolidate node. So the split's happy successor IS the branch's merge node.
+
+Exercises:
+  - layout.Compute must not return a cycle error (the guard falls back to
+    one column step right of the gateway),
+  - the resulting geometry must still validate and stay crossing-free.
+
+Registered in fixtureNames so TestFormatFixtures covers it; no dedicated
+acceptance test is needed because a regression here fails as a hard error.</bpmn:documentation>
+    <bpmn:startEvent id="Start_LastInChain" name="Request filed">
+      <bpmn:outgoing>Flow_start_to_prepare</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_prepare" sourceRef="Start_LastInChain" targetRef="Task_Prepare" />
+    <bpmn:serviceTask id="Task_Prepare" name="Prepare request">
+      <bpmn:incoming>Flow_start_to_prepare</bpmn:incoming>
+      <bpmn:outgoing>Flow_prepare_to_route</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_prepare_to_route" sourceRef="Task_Prepare" targetRef="Gateway_Route" />
+    <bpmn:exclusiveGateway id="Gateway_Route" name="Needs review?">
+      <bpmn:incoming>Flow_prepare_to_route</bpmn:incoming>
+      <bpmn:outgoing>Flow_route_direct</bpmn:outgoing>
+      <bpmn:outgoing>Flow_route_review</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_route_direct" name="no" sourceRef="Gateway_Route" targetRef="Task_Consolidate" />
+    <bpmn:sequenceFlow id="Flow_route_review" name="yes" sourceRef="Gateway_Route" targetRef="Task_Review" />
+    <bpmn:userTask id="Task_Review" name="Review request">
+      <bpmn:incoming>Flow_route_review</bpmn:incoming>
+      <bpmn:outgoing>Flow_review_to_consolidate</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_review_to_consolidate" sourceRef="Task_Review" targetRef="Task_Consolidate" />
+    <bpmn:serviceTask id="Task_Consolidate" name="Consolidate outcome">
+      <bpmn:incoming>Flow_route_direct</bpmn:incoming>
+      <bpmn:incoming>Flow_review_to_consolidate</bpmn:incoming>
+      <bpmn:outgoing>Flow_consolidate_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_consolidate_to_end" sourceRef="Task_Consolidate" targetRef="End_Routed" />
+    <bpmn:endEvent id="End_Routed" name="Request routed">
+      <bpmn:incoming>Flow_consolidate_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SplitLastInChain">
+    <bpmndi:BPMNPlane id="BPMNPlane_SplitLastInChain" bpmnElement="Process_SplitLastInChain" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

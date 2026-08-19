@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_SplitThreeCorners" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_SplitThreeCorners" name="Split three corners" isExecutable="true">
+    <bpmn:documentation>Rule A fixture: a three-way split ON THE SPINE with exactly two child
+branches lifts the SHORTER alternate above the spine and drops the longer
+one below.
+
+Shape: Start -&gt; Triage -&gt; Gateway_ThreeWaySplit -&gt; Approve -&gt; End (happy path,
+one straight row). The gateway declares its happy flow first, then a short
+alternate (2 tasks + end event, subtree weight 3) and a long alternate
+(4 tasks + end event, subtree weight 5). Both alternates dead-end in their
+own end event, so neither rejoins the spine and neither contains a back-edge
+source.
+
+Exercises:
+  - short alternate lifted ABOVE the spine row, long alternate BELOW it,
+  - happy path stays row-aligned and straight through the gateway,
+  - the lifted branch's entry edge leaves the gateway's TOP corner and the
+    below branch's entry edge leaves the gateway's BOTTOM corner (rule D
+    elbow, opposite corners of the same gateway column).</bpmn:documentation>
+    <bpmn:startEvent id="Start_ThreeWay" name="Case received">
+      <bpmn:outgoing>Flow_start_to_triage</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_triage" sourceRef="Start_ThreeWay" targetRef="Task_Triage" />
+    <bpmn:serviceTask id="Task_Triage" name="Triage case">
+      <bpmn:incoming>Flow_start_to_triage</bpmn:incoming>
+      <bpmn:outgoing>Flow_triage_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_triage_to_split" sourceRef="Task_Triage" targetRef="Gateway_ThreeWaySplit" />
+    <bpmn:exclusiveGateway id="Gateway_ThreeWaySplit" name="Case outcome?">
+      <bpmn:incoming>Flow_triage_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_split_happy</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_short</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_long</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_split_happy" name="approved" sourceRef="Gateway_ThreeWaySplit" targetRef="Task_Approve" />
+    <bpmn:sequenceFlow id="Flow_split_short" name="withdrawn" sourceRef="Gateway_ThreeWaySplit" targetRef="Task_ShortNotify" />
+    <bpmn:sequenceFlow id="Flow_split_long" name="disputed" sourceRef="Gateway_ThreeWaySplit" targetRef="Task_LongCollect" />
+    <bpmn:serviceTask id="Task_Approve" name="Approve case">
+      <bpmn:incoming>Flow_split_happy</bpmn:incoming>
+      <bpmn:outgoing>Flow_approve_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_approve_to_end" sourceRef="Task_Approve" targetRef="End_Approved" />
+    <bpmn:endEvent id="End_Approved" name="Case approved">
+      <bpmn:incoming>Flow_approve_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_ShortNotify" name="Notify withdrawal">
+      <bpmn:incoming>Flow_split_short</bpmn:incoming>
+      <bpmn:outgoing>Flow_shortnotify_to_shortclose</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_shortnotify_to_shortclose" sourceRef="Task_ShortNotify" targetRef="Task_ShortClose" />
+    <bpmn:serviceTask id="Task_ShortClose" name="Close withdrawn case">
+      <bpmn:incoming>Flow_shortnotify_to_shortclose</bpmn:incoming>
+      <bpmn:outgoing>Flow_shortclose_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_shortclose_to_end" sourceRef="Task_ShortClose" targetRef="End_Withdrawn" />
+    <bpmn:endEvent id="End_Withdrawn" name="Case withdrawn">
+      <bpmn:incoming>Flow_shortclose_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_LongCollect" name="Collect evidence">
+      <bpmn:incoming>Flow_split_long</bpmn:incoming>
+      <bpmn:outgoing>Flow_longcollect_to_longassess</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longcollect_to_longassess" sourceRef="Task_LongCollect" targetRef="Task_LongAssess" />
+    <bpmn:serviceTask id="Task_LongAssess" name="Assess dispute">
+      <bpmn:incoming>Flow_longcollect_to_longassess</bpmn:incoming>
+      <bpmn:outgoing>Flow_longassess_to_longrule</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longassess_to_longrule" sourceRef="Task_LongAssess" targetRef="Task_LongRule" />
+    <bpmn:serviceTask id="Task_LongRule" name="Rule on dispute">
+      <bpmn:incoming>Flow_longassess_to_longrule</bpmn:incoming>
+      <bpmn:outgoing>Flow_longrule_to_longarchive</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longrule_to_longarchive" sourceRef="Task_LongRule" targetRef="Task_LongArchive" />
+    <bpmn:serviceTask id="Task_LongArchive" name="Archive dispute file">
+      <bpmn:incoming>Flow_longrule_to_longarchive</bpmn:incoming>
+      <bpmn:outgoing>Flow_longarchive_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longarchive_to_end" sourceRef="Task_LongArchive" targetRef="End_Disputed" />
+    <bpmn:endEvent id="End_Disputed" name="Dispute closed">
+      <bpmn:incoming>Flow_longarchive_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_SplitThreeCorners">
+      <bpmndi:BPMNShape id="Start_ThreeWay_di" bpmnElement="Start_ThreeWay">
+        <dc:Bounds x="70" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="245" width="77" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Triage_di" bpmnElement="Task_Triage">
+        <dc:Bounds x="198" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ThreeWaySplit_di" bpmnElement="Gateway_ThreeWaySplit" isMarkerVisible="true">
+        <dc:Bounds x="383" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="305" y="186" width="84" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Approve_di" bpmnElement="Task_Approve">
+        <dc:Bounds x="518" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Approved_di" bpmnElement="End_Approved">
+        <dc:Bounds x="710" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="688" y="245" width="81" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShortNotify_di" bpmnElement="Task_ShortNotify">
+        <dc:Bounds x="518" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShortClose_di" bpmnElement="Task_ShortClose">
+        <dc:Bounds x="678" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Withdrawn_di" bpmnElement="End_Withdrawn">
+        <dc:Bounds x="870" y="72" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="846" y="115" width="85" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LongCollect_di" bpmnElement="Task_LongCollect">
+        <dc:Bounds x="518" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LongAssess_di" bpmnElement="Task_LongAssess">
+        <dc:Bounds x="678" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LongRule_di" bpmnElement="Task_LongRule">
+        <dc:Bounds x="838" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LongArchive_di" bpmnElement="Task_LongArchive">
+        <dc:Bounds x="998" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Disputed_di" bpmnElement="End_Disputed">
+        <dc:Bounds x="1190" y="332" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1169" y="375" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_to_triage_di" bpmnElement="Flow_start_to_triage">
+        <di:waypoint x="106" y="220" />
+        <di:waypoint x="198" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_triage_to_split_di" bpmnElement="Flow_triage_to_split">
+        <di:waypoint x="298" y="220" />
+        <di:waypoint x="383" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_split_happy_di" bpmnElement="Flow_split_happy">
+        <di:waypoint x="433" y="220" />
+        <di:waypoint x="518" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="441" y="200" width="50" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_split_short_di" bpmnElement="Flow_split_short">
+        <di:waypoint x="408" y="195" />
+        <di:waypoint x="408" y="90" />
+        <di:waypoint x="518" y="90" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="416" y="175" width="54" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_split_long_di" bpmnElement="Flow_split_long">
+        <di:waypoint x="408" y="245" />
+        <di:waypoint x="408" y="350" />
+        <di:waypoint x="518" y="350" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="416" y="250" width="45" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_approve_to_end_di" bpmnElement="Flow_approve_to_end">
+        <di:waypoint x="618" y="220" />
+        <di:waypoint x="710" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_shortnotify_to_shortclose_di" bpmnElement="Flow_shortnotify_to_shortclose">
+        <di:waypoint x="618" y="90" />
+        <di:waypoint x="678" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_shortclose_to_end_di" bpmnElement="Flow_shortclose_to_end">
+        <di:waypoint x="778" y="90" />
+        <di:waypoint x="870" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_longcollect_to_longassess_di" bpmnElement="Flow_longcollect_to_longassess">
+        <di:waypoint x="618" y="350" />
+        <di:waypoint x="678" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_longassess_to_longrule_di" bpmnElement="Flow_longassess_to_longrule">
+        <di:waypoint x="778" y="350" />
+        <di:waypoint x="838" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_longrule_to_longarchive_di" bpmnElement="Flow_longrule_to_longarchive">
+        <di:waypoint x="938" y="350" />
+        <di:waypoint x="998" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_longarchive_to_end_di" bpmnElement="Flow_longarchive_to_end">
+        <di:waypoint x="1098" y="350" />
+        <di:waypoint x="1190" y="350" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

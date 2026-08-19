@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_SplitThreeCorners" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_SplitThreeCorners" name="Split three corners" isExecutable="true">
+    <bpmn:documentation>Rule A fixture: a three-way split ON THE SPINE with exactly two child
+branches lifts the SHORTER alternate above the spine and drops the longer
+one below.
+
+Shape: Start -&gt; Triage -&gt; Gateway_ThreeWaySplit -&gt; Approve -&gt; End (happy path,
+one straight row). The gateway declares its happy flow first, then a short
+alternate (2 tasks + end event, subtree weight 3) and a long alternate
+(4 tasks + end event, subtree weight 5). Both alternates dead-end in their
+own end event, so neither rejoins the spine and neither contains a back-edge
+source.
+
+Exercises:
+  - short alternate lifted ABOVE the spine row, long alternate BELOW it,
+  - happy path stays row-aligned and straight through the gateway,
+  - the lifted branch's entry edge leaves the gateway's TOP corner and the
+    below branch's entry edge leaves the gateway's BOTTOM corner (rule D
+    elbow, opposite corners of the same gateway column).</bpmn:documentation>
+    <bpmn:startEvent id="Start_ThreeWay" name="Case received">
+      <bpmn:outgoing>Flow_start_to_triage</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_triage" sourceRef="Start_ThreeWay" targetRef="Task_Triage" />
+    <bpmn:serviceTask id="Task_Triage" name="Triage case">
+      <bpmn:incoming>Flow_start_to_triage</bpmn:incoming>
+      <bpmn:outgoing>Flow_triage_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_triage_to_split" sourceRef="Task_Triage" targetRef="Gateway_ThreeWaySplit" />
+    <bpmn:exclusiveGateway id="Gateway_ThreeWaySplit" name="Case outcome?">
+      <bpmn:incoming>Flow_triage_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_split_happy</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_short</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_long</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_split_happy" name="approved" sourceRef="Gateway_ThreeWaySplit" targetRef="Task_Approve" />
+    <bpmn:sequenceFlow id="Flow_split_short" name="withdrawn" sourceRef="Gateway_ThreeWaySplit" targetRef="Task_ShortNotify" />
+    <bpmn:sequenceFlow id="Flow_split_long" name="disputed" sourceRef="Gateway_ThreeWaySplit" targetRef="Task_LongCollect" />
+    <bpmn:serviceTask id="Task_Approve" name="Approve case">
+      <bpmn:incoming>Flow_split_happy</bpmn:incoming>
+      <bpmn:outgoing>Flow_approve_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_approve_to_end" sourceRef="Task_Approve" targetRef="End_Approved" />
+    <bpmn:endEvent id="End_Approved" name="Case approved">
+      <bpmn:incoming>Flow_approve_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_ShortNotify" name="Notify withdrawal">
+      <bpmn:incoming>Flow_split_short</bpmn:incoming>
+      <bpmn:outgoing>Flow_shortnotify_to_shortclose</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_shortnotify_to_shortclose" sourceRef="Task_ShortNotify" targetRef="Task_ShortClose" />
+    <bpmn:serviceTask id="Task_ShortClose" name="Close withdrawn case">
+      <bpmn:incoming>Flow_shortnotify_to_shortclose</bpmn:incoming>
+      <bpmn:outgoing>Flow_shortclose_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_shortclose_to_end" sourceRef="Task_ShortClose" targetRef="End_Withdrawn" />
+    <bpmn:endEvent id="End_Withdrawn" name="Case withdrawn">
+      <bpmn:incoming>Flow_shortclose_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_LongCollect" name="Collect evidence">
+      <bpmn:incoming>Flow_split_long</bpmn:incoming>
+      <bpmn:outgoing>Flow_longcollect_to_longassess</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longcollect_to_longassess" sourceRef="Task_LongCollect" targetRef="Task_LongAssess" />
+    <bpmn:serviceTask id="Task_LongAssess" name="Assess dispute">
+      <bpmn:incoming>Flow_longcollect_to_longassess</bpmn:incoming>
+      <bpmn:outgoing>Flow_longassess_to_longrule</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longassess_to_longrule" sourceRef="Task_LongAssess" targetRef="Task_LongRule" />
+    <bpmn:serviceTask id="Task_LongRule" name="Rule on dispute">
+      <bpmn:incoming>Flow_longassess_to_longrule</bpmn:incoming>
+      <bpmn:outgoing>Flow_longrule_to_longarchive</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longrule_to_longarchive" sourceRef="Task_LongRule" targetRef="Task_LongArchive" />
+    <bpmn:serviceTask id="Task_LongArchive" name="Archive dispute file">
+      <bpmn:incoming>Flow_longrule_to_longarchive</bpmn:incoming>
+      <bpmn:outgoing>Flow_longarchive_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_longarchive_to_end" sourceRef="Task_LongArchive" targetRef="End_Disputed" />
+    <bpmn:endEvent id="End_Disputed" name="Dispute closed">
+      <bpmn:incoming>Flow_longarchive_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SplitThreeCorners">
+    <bpmndi:BPMNPlane id="BPMNPlane_SplitThreeCorners" bpmnElement="Process_SplitThreeCorners" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

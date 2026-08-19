@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_LiftedSubtree" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_LiftedSubtree" name="Lifted subtree" isExecutable="true">
+    <bpmn:documentation>Direction-inheritance fixture for rule A.
+
+When a branch is lifted above the spine, its whole subtree must come with it.
+Lifting only the named branch and letting its children fall back to the
+default downward placement lands them BELOW the spine, forcing their entry
+edge to cross the spine row — which has no corridor, so the router falls
+through to a margin route across the whole diagram.
+
+Shape: a spine three-way split (Triage) whose SHORT alternate is itself a
+two-way split, so the lifted branch has descendants. The long alternate
+stays below.
+
+  short alternate (6 nodes, LIFTED): Escalate -&gt; Gateway_Urgency
+                                     -&gt; {Page on-call | Queue incident}
+  long alternate (7 nodes, below):   Investigate -&gt; Reproduce -&gt; Patch
+                                     -&gt; Verify -&gt; Document -&gt; Release
+
+The long alternate is deliberately one node longer than the short one, so
+that the branch carrying the nested split is the one that lifts. If the
+counts were reversed, a straight chain would lift and direction inheritance
+would never be exercised.
+
+Exercises:
+  - the lifted branch AND every descendant chain sit strictly above the
+    spine row (direction inheritance),
+  - no flow is margin-routed across the diagram,
+  - a nested split inside a lifted branch does not itself lift, because
+    rule A only applies to gateways sitting on the spine.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Lifted" name="Ticket raised">
+      <bpmn:outgoing>Flow_start_to_triage</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_triage" sourceRef="Start_Lifted" targetRef="Task_TriageTicket" />
+    <bpmn:serviceTask id="Task_TriageTicket" name="Triage ticket">
+      <bpmn:incoming>Flow_start_to_triage</bpmn:incoming>
+      <bpmn:outgoing>Flow_triage_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_triage_to_split" sourceRef="Task_TriageTicket" targetRef="Gateway_Severity" />
+    <bpmn:exclusiveGateway id="Gateway_Severity" name="Severity?">
+      <bpmn:incoming>Flow_triage_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_sev_normal</bpmn:outgoing>
+      <bpmn:outgoing>Flow_sev_critical</bpmn:outgoing>
+      <bpmn:outgoing>Flow_sev_bug</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_sev_normal" name="normal" sourceRef="Gateway_Severity" targetRef="Task_AnswerTicket" />
+    <bpmn:sequenceFlow id="Flow_sev_critical" name="critical" sourceRef="Gateway_Severity" targetRef="Task_Escalate" />
+    <bpmn:sequenceFlow id="Flow_sev_bug" name="bug" sourceRef="Gateway_Severity" targetRef="Task_Investigate" />
+    <bpmn:serviceTask id="Task_AnswerTicket" name="Answer ticket">
+      <bpmn:incoming>Flow_sev_normal</bpmn:incoming>
+      <bpmn:outgoing>Flow_answer_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_answer_to_end" sourceRef="Task_AnswerTicket" targetRef="End_Answered" />
+    <bpmn:endEvent id="End_Answered" name="Ticket answered">
+      <bpmn:incoming>Flow_answer_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_Escalate" name="Escalate incident">
+      <bpmn:incoming>Flow_sev_critical</bpmn:incoming>
+      <bpmn:outgoing>Flow_escalate_to_urgency</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_escalate_to_urgency" sourceRef="Task_Escalate" targetRef="Gateway_Urgency" />
+    <bpmn:exclusiveGateway id="Gateway_Urgency" name="Page now?">
+      <bpmn:incoming>Flow_escalate_to_urgency</bpmn:incoming>
+      <bpmn:outgoing>Flow_urgency_page</bpmn:outgoing>
+      <bpmn:outgoing>Flow_urgency_queue</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_urgency_page" name="yes" sourceRef="Gateway_Urgency" targetRef="Task_PageOncall" />
+    <bpmn:sequenceFlow id="Flow_urgency_queue" name="no" sourceRef="Gateway_Urgency" targetRef="Task_QueueIncident" />
+    <bpmn:serviceTask id="Task_PageOncall" name="Page on-call">
+      <bpmn:incoming>Flow_urgency_page</bpmn:incoming>
+      <bpmn:outgoing>Flow_page_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_page_to_end" sourceRef="Task_PageOncall" targetRef="End_Paged" />
+    <bpmn:endEvent id="End_Paged" name="On-call paged">
+      <bpmn:incoming>Flow_page_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_QueueIncident" name="Queue incident">
+      <bpmn:incoming>Flow_urgency_queue</bpmn:incoming>
+      <bpmn:outgoing>Flow_queue_to_end</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_queue_to_end" sourceRef="Task_QueueIncident" targetRef="End_Queued" />
+    <bpmn:endEvent id="End_Queued" name="Incident queued">
+      <bpmn:incoming>Flow_queue_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_Investigate" name="Investigate report">
+      <bpmn:incoming>Flow_sev_bug</bpmn:incoming>
+      <bpmn:outgoing>Flow_investigate_to_reproduce</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_investigate_to_reproduce" sourceRef="Task_Investigate" targetRef="Task_Reproduce" />
+    <bpmn:userTask id="Task_Reproduce" name="Reproduce defect">
+      <bpmn:incoming>Flow_investigate_to_reproduce</bpmn:incoming>
+      <bpmn:outgoing>Flow_reproduce_to_patch</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_reproduce_to_patch" sourceRef="Task_Reproduce" targetRef="Task_Patch" />
+    <bpmn:serviceTask id="Task_Patch" name="Patch defect">
+      <bpmn:incoming>Flow_reproduce_to_patch</bpmn:incoming>
+      <bpmn:outgoing>Flow_patch_to_verify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_patch_to_verify" sourceRef="Task_Patch" targetRef="Task_VerifyFix" />
+    <bpmn:serviceTask id="Task_VerifyFix" name="Verify fix">
+      <bpmn:incoming>Flow_patch_to_verify</bpmn:incoming>
+      <bpmn:outgoing>Flow_verify_to_document</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_verify_to_document" sourceRef="Task_VerifyFix" targetRef="Task_DocumentFix" />
+    <bpmn:userTask id="Task_DocumentFix" name="Document fix">
+      <bpmn:incoming>Flow_verify_to_document</bpmn:incoming>
+      <bpmn:outgoing>Flow_document_to_release</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_document_to_release" sourceRef="Task_DocumentFix" targetRef="Task_ReleaseFix" />
+    <bpmn:serviceTask id="Task_ReleaseFix" name="Release fix">
+      <bpmn:incoming>Flow_document_to_release</bpmn:incoming>
+      <bpmn:outgoing>Flow_verify_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_verify_to_end" sourceRef="Task_ReleaseFix" targetRef="End_Fixed" />
+    <bpmn:endEvent id="End_Fixed" name="Defect fixed">
+      <bpmn:incoming>Flow_verify_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_LiftedSubtree">
+    <bpmndi:BPMNPlane id="BPMNPlane_LiftedSubtree" bpmnElement="Process_LiftedSubtree" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

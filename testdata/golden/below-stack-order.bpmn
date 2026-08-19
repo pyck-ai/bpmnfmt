@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_BelowStackOrder" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_BelowStackOrder" name="Below stack order" isExecutable="true">
+    <bpmn:documentation>Rule C fixture: the below-alternates of one gateway stack longest-first, so
+the longest alternate sits directly under the spine and the shortest ends up
+furthest away.
+
+Shape: Start -&gt; Receive -&gt; Gateway_FiveWaySplit -&gt; Fulfil -&gt; End (happy path),
+plus four dead-ending alternates of 4, 3, 2 and 1 tasks. Five outgoing flows
+mean nothing is lifted (rule B), so all four alternates compete for the tiers
+below the spine.
+
+The alternates are DECLARED shortest-first (one task, then two, then three,
+then four). Stacking by declaration order would therefore produce exactly the
+inverse of the required order, which makes the fixture discriminating: only
+sorting by subtree weight yields the expected tiers.
+
+Exercises:
+  - the row index of an alternate increases strictly as its length decreases.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Stack" name="Claim filed">
+      <bpmn:outgoing>Flow_start_to_receive</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_to_receive" sourceRef="Start_Stack" targetRef="Task_ReceiveClaim" />
+    <bpmn:serviceTask id="Task_ReceiveClaim" name="Receive claim">
+      <bpmn:incoming>Flow_start_to_receive</bpmn:incoming>
+      <bpmn:outgoing>Flow_receive_to_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_receive_to_split" sourceRef="Task_ReceiveClaim" targetRef="Gateway_FiveWaySplit" />
+    <bpmn:exclusiveGateway id="Gateway_FiveWaySplit" name="Claim type?">
+      <bpmn:incoming>Flow_receive_to_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_stack_happy</bpmn:outgoing>
+      <bpmn:outgoing>Flow_stack_one</bpmn:outgoing>
+      <bpmn:outgoing>Flow_stack_two</bpmn:outgoing>
+      <bpmn:outgoing>Flow_stack_three</bpmn:outgoing>
+      <bpmn:outgoing>Flow_stack_four</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_stack_happy" name="standard" sourceRef="Gateway_FiveWaySplit" targetRef="Task_Fulfil" />
+    <bpmn:sequenceFlow id="Flow_stack_one" name="trivial" sourceRef="Gateway_FiveWaySplit" targetRef="Task_One1" />
+    <bpmn:sequenceFlow id="Flow_stack_two" name="minor" sourceRef="Gateway_FiveWaySplit" targetRef="Task_Two1" />
+    <bpmn:sequenceFlow id="Flow_stack_three" name="major" sourceRef="Gateway_FiveWaySplit" targetRef="Task_Three1" />
+    <bpmn:sequenceFlow id="Flow_stack_four" name="fraud" sourceRef="Gateway_FiveWaySplit" targetRef="Task_Four1" />
+    <bpmn:serviceTask id="Task_Fulfil" name="Fulfil claim">
+      <bpmn:incoming>Flow_stack_happy</bpmn:incoming>
+      <bpmn:outgoing>Flow_fulfil_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_fulfil_to_end" sourceRef="Task_Fulfil" targetRef="End_Fulfilled" />
+    <bpmn:endEvent id="End_Fulfilled" name="Claim fulfilled">
+      <bpmn:incoming>Flow_fulfil_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_One1" name="Auto settle">
+      <bpmn:incoming>Flow_stack_one</bpmn:incoming>
+      <bpmn:outgoing>Flow_one1_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_one1_to_end" sourceRef="Task_One1" targetRef="End_One" />
+    <bpmn:endEvent id="End_One" name="Auto settled">
+      <bpmn:incoming>Flow_one1_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_Two1" name="Check policy">
+      <bpmn:incoming>Flow_stack_two</bpmn:incoming>
+      <bpmn:outgoing>Flow_two1_to_two2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_two1_to_two2" sourceRef="Task_Two1" targetRef="Task_Two2" />
+    <bpmn:serviceTask id="Task_Two2" name="Pay out minor">
+      <bpmn:incoming>Flow_two1_to_two2</bpmn:incoming>
+      <bpmn:outgoing>Flow_two2_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_two2_to_end" sourceRef="Task_Two2" targetRef="End_Two" />
+    <bpmn:endEvent id="End_Two" name="Minor settled">
+      <bpmn:incoming>Flow_two2_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_Three1" name="Assign adjuster">
+      <bpmn:incoming>Flow_stack_three</bpmn:incoming>
+      <bpmn:outgoing>Flow_three1_to_three2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_three1_to_three2" sourceRef="Task_Three1" targetRef="Task_Three2" />
+    <bpmn:serviceTask id="Task_Three2" name="Inspect damage">
+      <bpmn:incoming>Flow_three1_to_three2</bpmn:incoming>
+      <bpmn:outgoing>Flow_three2_to_three3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_three2_to_three3" sourceRef="Task_Three2" targetRef="Task_Three3" />
+    <bpmn:serviceTask id="Task_Three3" name="Pay out major">
+      <bpmn:incoming>Flow_three2_to_three3</bpmn:incoming>
+      <bpmn:outgoing>Flow_three3_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_three3_to_end" sourceRef="Task_Three3" targetRef="End_Three" />
+    <bpmn:endEvent id="End_Three" name="Major settled">
+      <bpmn:incoming>Flow_three3_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_Four1" name="Open investigation">
+      <bpmn:incoming>Flow_stack_four</bpmn:incoming>
+      <bpmn:outgoing>Flow_four1_to_four2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_four1_to_four2" sourceRef="Task_Four1" targetRef="Task_Four2" />
+    <bpmn:serviceTask id="Task_Four2" name="Interview claimant">
+      <bpmn:incoming>Flow_four1_to_four2</bpmn:incoming>
+      <bpmn:outgoing>Flow_four2_to_four3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_four2_to_four3" sourceRef="Task_Four2" targetRef="Task_Four3" />
+    <bpmn:serviceTask id="Task_Four3" name="Report to authority">
+      <bpmn:incoming>Flow_four2_to_four3</bpmn:incoming>
+      <bpmn:outgoing>Flow_four3_to_four4</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_four3_to_four4" sourceRef="Task_Four3" targetRef="Task_Four4" />
+    <bpmn:serviceTask id="Task_Four4" name="Close as fraud">
+      <bpmn:incoming>Flow_four3_to_four4</bpmn:incoming>
+      <bpmn:outgoing>Flow_four4_to_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_four4_to_end" sourceRef="Task_Four4" targetRef="End_Four" />
+    <bpmn:endEvent id="End_Four" name="Fraud closed">
+      <bpmn:incoming>Flow_four4_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_BelowStackOrder">
+      <bpmndi:BPMNShape id="Start_Stack_di" bpmnElement="Start_Stack">
+        <dc:Bounds x="60" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="122" width="56" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReceiveClaim_di" bpmnElement="Task_ReceiveClaim">
+        <dc:Bounds x="188" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_FiveWaySplit_di" bpmnElement="Gateway_FiveWaySplit" isMarkerVisible="true">
+        <dc:Bounds x="373" y="72" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="366" y="50" width="63" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Fulfil_di" bpmnElement="Task_Fulfil">
+        <dc:Bounds x="508" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Fulfilled_di" bpmnElement="End_Fulfilled">
+        <dc:Bounds x="700" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="682" y="122" width="71" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_One1_di" bpmnElement="Task_One1">
+        <dc:Bounds x="508" y="577" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_One_di" bpmnElement="End_One">
+        <dc:Bounds x="700" y="599" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="686" y="642" width="63" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Two1_di" bpmnElement="Task_Two1">
+        <dc:Bounds x="508" y="447" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Two2_di" bpmnElement="Task_Two2">
+        <dc:Bounds x="668" y="447" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Two_di" bpmnElement="End_Two">
+        <dc:Bounds x="860" y="469" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="844" y="512" width="69" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Three1_di" bpmnElement="Task_Three1">
+        <dc:Bounds x="508" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Three2_di" bpmnElement="Task_Three2">
+        <dc:Bounds x="668" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Three3_di" bpmnElement="Task_Three3">
+        <dc:Bounds x="828" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Three_di" bpmnElement="End_Three">
+        <dc:Bounds x="1020" y="339" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1004" y="382" width="69" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Four1_di" bpmnElement="Task_Four1">
+        <dc:Bounds x="508" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Four2_di" bpmnElement="Task_Four2">
+        <dc:Bounds x="668" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Four3_di" bpmnElement="Task_Four3">
+        <dc:Bounds x="828" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Four4_di" bpmnElement="Task_Four4">
+        <dc:Bounds x="988" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Four_di" bpmnElement="End_Four">
+        <dc:Bounds x="1180" y="209" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1163" y="252" width="69" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_to_receive_di" bpmnElement="Flow_start_to_receive">
+        <di:waypoint x="96" y="97" />
+        <di:waypoint x="188" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_receive_to_split_di" bpmnElement="Flow_receive_to_split">
+        <di:waypoint x="288" y="97" />
+        <di:waypoint x="373" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stack_happy_di" bpmnElement="Flow_stack_happy">
+        <di:waypoint x="423" y="97" />
+        <di:waypoint x="508" y="97" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="431" y="77" width="47" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stack_one_di" bpmnElement="Flow_stack_one">
+        <di:waypoint x="398" y="122" />
+        <di:waypoint x="398" y="617" />
+        <di:waypoint x="508" y="617" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="406" y="127" width="28" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stack_two_di" bpmnElement="Flow_stack_two">
+        <di:waypoint x="398" y="122" />
+        <di:waypoint x="398" y="487" />
+        <di:waypoint x="508" y="487" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="406" y="155" width="30" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stack_three_di" bpmnElement="Flow_stack_three">
+        <di:waypoint x="398" y="122" />
+        <di:waypoint x="398" y="357" />
+        <di:waypoint x="508" y="357" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="406" y="183" width="30" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stack_four_di" bpmnElement="Flow_stack_four">
+        <di:waypoint x="398" y="122" />
+        <di:waypoint x="398" y="227" />
+        <di:waypoint x="508" y="227" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="406" y="211" width="27" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fulfil_to_end_di" bpmnElement="Flow_fulfil_to_end">
+        <di:waypoint x="608" y="97" />
+        <di:waypoint x="700" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_one1_to_end_di" bpmnElement="Flow_one1_to_end">
+        <di:waypoint x="608" y="617" />
+        <di:waypoint x="700" y="617" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_two1_to_two2_di" bpmnElement="Flow_two1_to_two2">
+        <di:waypoint x="608" y="487" />
+        <di:waypoint x="668" y="487" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_two2_to_end_di" bpmnElement="Flow_two2_to_end">
+        <di:waypoint x="768" y="487" />
+        <di:waypoint x="860" y="487" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_three1_to_three2_di" bpmnElement="Flow_three1_to_three2">
+        <di:waypoint x="608" y="357" />
+        <di:waypoint x="668" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_three2_to_three3_di" bpmnElement="Flow_three2_to_three3">
+        <di:waypoint x="768" y="357" />
+        <di:waypoint x="828" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_three3_to_end_di" bpmnElement="Flow_three3_to_end">
+        <di:waypoint x="928" y="357" />
+        <di:waypoint x="1020" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four1_to_four2_di" bpmnElement="Flow_four1_to_four2">
+        <di:waypoint x="608" y="227" />
+        <di:waypoint x="668" y="227" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four2_to_four3_di" bpmnElement="Flow_four2_to_four3">
+        <di:waypoint x="768" y="227" />
+        <di:waypoint x="828" y="227" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four3_to_four4_di" bpmnElement="Flow_four3_to_four4">
+        <di:waypoint x="928" y="227" />
+        <di:waypoint x="988" y="227" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_four4_to_end_di" bpmnElement="Flow_four4_to_end">
+        <di:waypoint x="1088" y="227" />
+        <di:waypoint x="1180" y="227" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
