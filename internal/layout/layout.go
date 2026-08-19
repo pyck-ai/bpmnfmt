@@ -81,6 +81,11 @@ type Result struct {
 	// (rule L3). They legitimately run leftwards, so the forward-direction
 	// invariant exempts exactly these and no others.
 	Retrograde map[string]bool
+	// Merged maps a rejoin bundle's follower to the flow that owns the
+	// shared riser (rule M2): both end at the same point on purpose, with
+	// one arrowhead between them. Declared, never inferred — an accidental
+	// pileup of two unrelated inflows must stay reportable.
+	Merged map[string]string
 }
 
 // Compute lays out one process.
@@ -91,6 +96,7 @@ func Compute(p *model.Process, g *graph.Graph) (*Result, error) {
 		EdgeLabels: map[string]Rect{},
 		Edges:      map[string][]Point{},
 		Retrograde: map[string]bool{},
+		Merged:     map[string]string{},
 	}
 
 	// Expanded sub-processes are laid out first (in their own coordinate
@@ -210,6 +216,9 @@ func merge(dst, src *Result, dx, dy float64) {
 	}
 	for k := range src.Retrograde {
 		dst.Retrograde[k] = true
+	}
+	for k, v := range src.Merged {
+		dst.Merged[k] = v
 	}
 }
 

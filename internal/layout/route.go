@@ -38,6 +38,10 @@ type docking struct {
 	// leaves the same corner in the same column by design and peels off at
 	// its own row, so these dockings are not spread apart.
 	shared bool
+	// merged marks a rejoin bundle's shared riser: every member of the
+	// bundle enters the target on the same point, so the reader sees one
+	// line growing as each arc joins it and exactly one arrowhead.
+	merged bool
 }
 
 // laneSeg is a horizontal run inside a gap channel. marginSentinel stands in
@@ -154,6 +158,7 @@ func (cl *compLayout) planRoutes() error {
 		}
 	}
 	cl.assignLanes()
+	cl.mergeBundleDockings()
 	cl.resolveDockings()
 	return nil
 }
@@ -570,6 +575,69 @@ func (cl *compLayout) laneBundles() map[*laneSeg]string {
 	return out
 }
 
+// mergeBundleDockings makes each rejoin bundle enter its target as ONE
+// arrow (rule M2). The members already share a lane (L6a); now they share
+// the riser too: the member reaching furthest left owns it, in the target's
+// own column, and every other member runs along the shared lane into that
+// same column and follows the same riser to the same terminal point. Their
+// final runs are collinear, so what the reader sees is one line growing as
+// each arc joins it, ending in a single arrowhead.
+//
+// Only members whose riser IS the target's column can merge — the kinds
+// that dock straight off their lane. A member routed through a corridor
+// reserved elsewhere (pkUpBottom, pkDownTop) has to come in on its own
+// column, so it keeps its own riser and its own arrowhead; it may still
+// share the lane.
+//
+// The merge is DECLARED here, never inferred from geometry downstream: two
+// unrelated inflows that happen to end up collinear and sharing a terminal
+// point are the pileup bug, not a bundle, and must stay reportable.
+func (cl *compLayout) mergeBundleDockings() {
+	mergeable := func(k planKind) bool {
+		return k == pkUnderRow || k == pkBackBottom
+	}
+	byKey := map[string][]*edgePlan{}
+	var order []string
+	for _, pl := range cl.plans {
+		if !mergeable(pl.kind) || pl.entry == nil || pl.seg1 == nil {
+			continue
+		}
+		if pl.entry.side != sTop && pl.entry.side != sBottom {
+			continue
+		}
+		// The gap is part of the key: members sharing a target but lying in
+		// different gaps sit at different lane depths, so their risers have
+		// different lengths and one cannot follow the other's line.
+		k := fmt.Sprintf("%d/%s/%d", pl.g1, pl.dst, pl.entry.side)
+		if _, seen := byKey[k]; !seen {
+			order = append(order, k)
+		}
+		byKey[k] = append(byKey[k], pl)
+	}
+	for _, k := range order {
+		members := byKey[k]
+		if len(members) < 2 {
+			continue
+		}
+		sort.SliceStable(members, func(i, j int) bool {
+			li, lj := members[i].seg1.lo(), members[j].seg1.lo()
+			if li != lj {
+				return li < lj
+			}
+			return members[i].id < members[j].id
+		})
+		owner := members[0]
+		for _, pl := range members {
+			pl.entry.merged = true
+			pl.entry.pinned = true
+			pl.entry.fixed = 0
+			if pl != owner {
+				cl.res.Merged[pl.id] = owner.id
+			}
+		}
+	}
+}
+
 // laneGroup is one bundle (or one lone segment) competing for a lane.
 type laneGroup struct {
 	segs   []*laneSeg
@@ -680,6 +748,9 @@ func (cl *compLayout) resolveDockings() {
 		for _, d := range docks {
 			switch {
 			case d.shared: // the split's own trunk: every alternate at the corner
+				d.off = 0
+				shared = true
+			case d.merged: // one rejoin bundle: every member on one riser
 				d.off = 0
 				shared = true
 			case d.pinned:

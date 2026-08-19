@@ -122,6 +122,24 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 		}
 	}
 
+	// Declared merges (rule M2): a follower must genuinely lie on its
+	// trunk's final run, not merely end near it. This is what keeps the
+	// merge honest — an accidental pileup would fail here.
+	for _, a := range sortedStringKeys(res.Merged) {
+		b := res.Merged[a]
+		pa, pb := res.Edges[a], res.Edges[b]
+		if len(pa) < 2 || len(pb) < 2 {
+			out = append(out, fmt.Sprintf("declared merge %s->%s has no trunk", a, b))
+			continue
+		}
+		a1, a2 := pa[len(pa)-2], pa[len(pa)-1]
+		b1, b2 := pb[len(pb)-2], pb[len(pb)-1]
+		ok := samePoint(a2, b2) && collinearSeg(a1, a2, b1, b2) && containsSeg(b1, b2, a1, a2)
+		if !ok {
+			out = append(out, fmt.Sprintf("declared merge %s->%s is not collinear with its trunk", a, b))
+		}
+	}
+
 	// Forward-flow direction and spine straightness, per scope.
 	checkFlowGeometry(p, g, res, &out)
 	for _, n := range p.Nodes {
@@ -273,6 +291,39 @@ func edgeEndpoints(scopes []*model.Process, edgeID string) map[string]bool {
 		}
 	}
 	return skip
+}
+
+func samePoint(a, b Point) bool { return sameX(a, b) && sameY(a, b) }
+
+// collinearSeg reports whether two axis-parallel segments lie on one line.
+func collinearSeg(a1, a2, b1, b2 Point) bool {
+	if sameX(a1, a2) && sameX(b1, b2) {
+		return sameX(a1, b1)
+	}
+	if sameY(a1, a2) && sameY(b1, b2) {
+		return sameY(a1, b1)
+	}
+	return false
+}
+
+// containsSeg reports whether the collinear segment i..j covers p..q.
+func containsSeg(i, j, p, q Point) bool {
+	const e = 0.5
+	if sameX(i, j) {
+		lo, hi := math.Min(i.Y, j.Y), math.Max(i.Y, j.Y)
+		return math.Min(p.Y, q.Y) >= lo-e && math.Max(p.Y, q.Y) <= hi+e
+	}
+	lo, hi := math.Min(i.X, j.X), math.Max(i.X, j.X)
+	return math.Min(p.X, q.X) >= lo-e && math.Max(p.X, q.X) <= hi+e
+}
+
+func sortedStringKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sortedKeys(m map[string]Rect) []string {
