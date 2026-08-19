@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_GatewayClusterColumns" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_GatewayClusterColumns" name="Gateway cluster columns" isExecutable="true">
+    <bpmn:documentation>Rule L4 fixture: the alignment column for a split's branch heads is the
+column of the FIRST NON-GATEWAY node following the split on its parent
+chain. Consecutive gateways form one cluster and share one branch-head
+column.
+
+Shape: Start -&gt; G1 -&gt; G2 -&gt; Screen order -&gt; End on the spine, with one
+alternate hanging off G1 and two off G2.
+
+G1 and G2 sit back to back, so they are one cluster. Aligning each split to
+its immediate successor put G1's alternate under G2 (a 50px diamond) and
+G2's alternates under Screen order (a 100px task) — two branch-head columns
+for what reads as a single decision point, and the entry edges left the
+cluster at two different depths. Under L4 all three heads take the column of
+Screen order, the first non-gateway after the cluster.
+
+branch-entry-elbow.bpmn is the cluster-size-1 control: its split is followed
+directly by a non-gateway, so the alignment column is unchanged.
+
+Exercises:
+  - all three branch heads share the column of the first non-gateway node
+    after the cluster,
+  - their end events line up in the next column too, so the rows read as
+    parallel tracks.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Cluster" name="Order received">
+      <bpmn:outgoing>Flow_start_g1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_g1" sourceRef="Start_Cluster" targetRef="G1" />
+    <bpmn:exclusiveGateway id="G1" name="Known customer?">
+      <bpmn:incoming>Flow_start_g1</bpmn:incoming>
+      <bpmn:outgoing>Flow_g1_g2</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g1_a</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_g1_g2" name="yes" sourceRef="G1" targetRef="G2" />
+    <bpmn:exclusiveGateway id="G2" name="Payment cleared?">
+      <bpmn:incoming>Flow_g1_g2</bpmn:incoming>
+      <bpmn:outgoing>Flow_g2_main</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g2_b</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g2_c</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_g2_main" name="cleared" sourceRef="G2" targetRef="Task_Main" />
+    <bpmn:serviceTask id="Task_Main" name="Screen order">
+      <bpmn:incoming>Flow_g2_main</bpmn:incoming>
+      <bpmn:outgoing>Flow_main_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_main_end" sourceRef="Task_Main" targetRef="End_Main" />
+    <bpmn:endEvent id="End_Main" name="Order accepted">
+      <bpmn:incoming>Flow_main_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_g1_a" name="no" sourceRef="G1" targetRef="Task_A" />
+    <bpmn:serviceTask id="Task_A" name="Open credit check">
+      <bpmn:incoming>Flow_g1_a</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_a_end" sourceRef="Task_A" targetRef="End_A" />
+    <bpmn:endEvent id="End_A" name="Sent to credit">
+      <bpmn:incoming>Flow_a_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_g2_b" name="pending" sourceRef="G2" targetRef="Task_B" />
+    <bpmn:serviceTask id="Task_B" name="Hold for payment">
+      <bpmn:incoming>Flow_g2_b</bpmn:incoming>
+      <bpmn:outgoing>Flow_b_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_b_end" sourceRef="Task_B" targetRef="End_B" />
+    <bpmn:endEvent id="End_B" name="Payment pending">
+      <bpmn:incoming>Flow_b_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_g2_c" name="declined" sourceRef="G2" targetRef="Task_C" />
+    <bpmn:serviceTask id="Task_C" name="Notify decline">
+      <bpmn:incoming>Flow_g2_c</bpmn:incoming>
+      <bpmn:outgoing>Flow_c_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_c_end" sourceRef="Task_C" targetRef="End_C" />
+    <bpmn:endEvent id="End_C" name="Order declined">
+      <bpmn:incoming>Flow_c_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_GatewayClusterColumns">
+      <bpmndi:BPMNShape id="Start_Cluster_di" bpmnElement="Start_Cluster">
+        <dc:Bounds x="72" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="245" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G1_di" bpmnElement="G1" isMarkerVisible="true">
+        <dc:Bounds x="225" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="222" y="158" width="56" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G2_di" bpmnElement="G2" isMarkerVisible="true">
+        <dc:Bounds x="385" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="329" y="171" width="47" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Main_di" bpmnElement="Task_Main">
+        <dc:Bounds x="520" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Main_di" bpmnElement="End_Main">
+        <dc:Bounds x="712" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="688" y="245" width="83" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_A_di" bpmnElement="Task_A">
+        <dc:Bounds x="520" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_A_di" bpmnElement="End_A">
+        <dc:Bounds x="712" y="332" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="694" y="375" width="71" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_B_di" bpmnElement="Task_B">
+        <dc:Bounds x="520" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_B_di" bpmnElement="End_B">
+        <dc:Bounds x="712" y="462" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="706" y="505" width="47" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_C_di" bpmnElement="Task_C">
+        <dc:Bounds x="520" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_C_di" bpmnElement="End_C">
+        <dc:Bounds x="712" y="72" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="690" y="115" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_g1_di" bpmnElement="Flow_start_g1">
+        <di:waypoint x="108" y="220" />
+        <di:waypoint x="225" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g1_g2_di" bpmnElement="Flow_g1_g2">
+        <di:waypoint x="275" y="220" />
+        <di:waypoint x="385" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="283" y="200" width="19" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g2_main_di" bpmnElement="Flow_g2_main">
+        <di:waypoint x="435" y="220" />
+        <di:waypoint x="520" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="443" y="200" width="39" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_main_end_di" bpmnElement="Flow_main_end">
+        <di:waypoint x="620" y="220" />
+        <di:waypoint x="712" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g1_a_di" bpmnElement="Flow_g1_a">
+        <di:waypoint x="250" y="245" />
+        <di:waypoint x="250" y="350" />
+        <di:waypoint x="520" y="350" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="258" y="250" width="13" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_end_di" bpmnElement="Flow_a_end">
+        <di:waypoint x="620" y="350" />
+        <di:waypoint x="712" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g2_b_di" bpmnElement="Flow_g2_b">
+        <di:waypoint x="410" y="245" />
+        <di:waypoint x="410" y="480" />
+        <di:waypoint x="520" y="480" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="418" y="250" width="43" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_end_di" bpmnElement="Flow_b_end">
+        <di:waypoint x="620" y="480" />
+        <di:waypoint x="712" y="480" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g2_c_di" bpmnElement="Flow_g2_c">
+        <di:waypoint x="410" y="195" />
+        <di:waypoint x="410" y="90" />
+        <di:waypoint x="520" y="90" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="418" y="175" width="45" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_c_end_di" bpmnElement="Flow_c_end">
+        <di:waypoint x="620" y="90" />
+        <di:waypoint x="712" y="90" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
