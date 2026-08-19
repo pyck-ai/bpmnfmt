@@ -30,6 +30,7 @@ const (
 	MinGapH          = 50.0  // minimum vertical gap between rows
 	Margin           = 50.0  // outer margin
 	SlotStep         = 14.0  // spacing between dockings on one node side
+	StubLen          = 14.0  // shared stub between a diamond corner and its lanes
 	Clearance        = 15.0  // corridor distance to any shape
 	AnnGap           = 14.0  // gap between annotation band and node row
 	ProseGap         = 24.0  // gap below the prose-annotation zone

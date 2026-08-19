@@ -205,8 +205,8 @@ by a concurrent run (status != "fulfillable").</bpmn:text>
       <bpmndi:BPMNEdge id="Flow_1o0hl68_di" bpmnElement="Flow_1o0hl68">
         <di:waypoint x="108" y="381" />
         <di:waypoint x="175" y="381" />
-        <di:waypoint x="175" y="251" />
-        <di:waypoint x="200" y="251" />
+        <di:waypoint x="175" y="265" />
+        <di:waypoint x="200" y="265" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_fetch_to_routetable_di" bpmnElement="Flow_fetch_to_routetable">
         <di:waypoint x="300" y="251" />
@@ -235,7 +235,9 @@ by a concurrent run (status != "fulfillable").</bpmn:text>
       <bpmndi:BPMNEdge id="Flow_loop_back_di" bpmnElement="Flow_loop_back">
         <di:waypoint x="1050" y="421" />
         <di:waypoint x="1050" y="476" />
-        <di:waypoint x="730" y="476" />
+        <di:waypoint x="744" y="476" />
+        <di:waypoint x="744" y="290" />
+        <di:waypoint x="730" y="290" />
         <di:waypoint x="730" y="276" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_no_batch_di" bpmnElement="Flow_no_batch">

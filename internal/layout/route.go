@@ -11,6 +11,7 @@ type nodeSide int
 const (
 	sTop nodeSide = iota
 	sBottom
+	sLeft
 )
 
 type sideKey struct {
@@ -18,15 +19,23 @@ type sideKey struct {
 	side nodeSide
 }
 
-// docking is one edge endpoint on a node's top or bottom side. Offsets are
-// relative to the node center and resolved after all plans exist. Left/right
-// side dockings always sit on the row centerline and need no bookkeeping.
+// docking is one edge endpoint on a node side. Offsets are relative to the
+// node center along the side's own axis (x on top/bottom, y on the left) and
+// resolved after all plans exist. Two edges may not share one docking point:
+// an arrowhead landing where another already sits is invisible.
 type docking struct {
-	edge     string
-	approach float64 // x of the far end; orders dockings along the side
-	pinned   bool    // must sit exactly at fixed (alignment / corridor)
+	edge string
+	// approach orders dockings along the side: the x of the far end for
+	// top/bottom, the row the edge comes from for the left side.
+	approach float64
+	pinned   bool // must sit exactly at fixed (alignment / corridor)
 	fixed    float64
 	off      float64 // resolved
+	stub     bool    // touch the shape at its corner and jog to off (gateways)
+	// shared marks a split's own trunk: every alternate of one gateway
+	// leaves the same corner in the same column by design and peels off at
+	// its own row, so these dockings are not spread apart.
+	shared bool
 }
 
 // laneSeg is a horizontal run inside a gap channel. marginSentinel stands in
@@ -42,12 +51,11 @@ const marginSentinel = -100.0
 func (s *laneSeg) lo() float64 { return math.Min(s.x1, s.x2) }
 func (s *laneSeg) hi() float64 { return math.Max(s.x1, s.x2) }
 
-// corridor registers a vertical line crossing row bands. owner names the
-// docking it ends at ("node/side") — verticals with the same owner may share
-// the exact same x, merging visually into one trunk (classic fan-in look).
+// corridor registers a vertical line crossing row bands. Every vertical
+// needs a column of its own: two lines sharing one column merge into a
+// single stroke, and whatever arrowheads they carry stack on top of it.
 type corridor struct {
-	x     float64
-	owner string
+	x float64
 }
 
 type planKind int
@@ -97,6 +105,7 @@ func (cl *compLayout) planRoutes() error {
 		switch classify(cl.g, cl.chains, cl.chainOf, fl) {
 		case fcChainInternal:
 			pl.kind = pkH
+			pl.entry = cl.dockLeft(pl, true)
 
 		case fcEntry:
 			cl.planBranchEntry(pl, sr, dr)
@@ -108,6 +117,7 @@ func (cl *compLayout) planRoutes() error {
 					cl.planUnderRow(pl, sr)
 				} else {
 					pl.kind = pkH
+					pl.entry = cl.dockLeft(pl, true)
 				}
 			case sr > dr: // target above
 				cl.planUpward(pl, sr, dr, sx, dx, aligned)
@@ -145,24 +155,27 @@ func (cl *compLayout) planBranchEntry(pl *edgePlan, sr, dr int) {
 	}
 	pl.corrX = gx
 	pl.exit = cl.dock(pl.id, pl.src, side, gx, true, 0)
-	cl.useCorridor(gx, trunk(pl.src, side))
+	pl.exit.shared = true
+	pl.entry = cl.dockLeft(pl, false)
+	cl.useCorridor(gx)
 }
 
 func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
-	if aligned && cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx, trunk(pl.dst, sTop)) {
+	if aligned && cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx) {
 		pl.kind = pkVDown
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, true, 0)
 		pl.entry = cl.dock(pl.id, pl.dst, sTop, sx, true, 0)
-		cl.useCorridor(sx, trunk(pl.dst, sTop))
+		cl.useCorridor(sx)
 		return
 	}
 	// Drop straight down at the source, enter the target's left side.
-	if cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx, "") &&
+	if cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx) &&
 		sx < cl.left(pl.dst) && !cl.nodesBetween(dr, sx, cl.left(pl.dst)) {
 		pl.kind = pkDownLeftIn
 		pl.corrX = sx
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, false, 0)
-		cl.useCorridor(sx, "")
+		pl.entry = cl.dockLeft(pl, false)
+		cl.useCorridor(sx)
 		return
 	}
 	// Jog through the gap below the source row to a corridor, then down into
@@ -174,6 +187,7 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 		pl.g1 = sr + 1
 		pl.seg1 = cl.lane(sr+1, pl.id, sx, corr)
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, corr, false, 0)
+		pl.entry = cl.dockLeft(pl, false)
 		return
 	}
 	// Fall back to entering the top via the gap above the target row.
@@ -193,11 +207,11 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 
 // planUpward: source row below target row, forward direction (rejoin).
 func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
-	if aligned && cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx, trunk(pl.dst, sBottom)) {
+	if aligned && cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx) {
 		pl.kind = pkVUp
 		pl.exit = cl.dock(pl.id, pl.src, sTop, dx, true, 0)
 		pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, 0)
-		cl.useCorridor(sx, trunk(pl.dst, sBottom))
+		cl.useCorridor(sx)
 		return
 	}
 	// Preferred rejoin shape: leave the source to the right, then rise
@@ -216,8 +230,8 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 			x := dx + off
 			if x > cl.right(pl.src)+10 &&
 				!cl.nodesBetween(sr, cl.right(pl.src), x) &&
-				cl.corridorClear(x, dr+1, sr) && cl.corridorFree(x, trunk(pl.dst, sBottom)) {
-				cl.useCorridor(x, trunk(pl.dst, sBottom))
+				cl.corridorClear(x, dr+1, sr) && cl.corridorFree(x) {
+				cl.useCorridor(x)
 				pl.kind = pkRightUp
 				pl.corrX = x
 				pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, x-dx)
@@ -244,11 +258,12 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 // planRootMerge: secondary-start chains fan into the merge target's left side.
 func (cl *compLayout) planRootMerge(pl *edgePlan, sr, dr int) {
 	bend := cl.left(pl.dst) - BendBeforeTarget
-	if cl.corridorClear(bend, dr+1, sr-1) && cl.corridorFree(bend, "") &&
+	if cl.corridorClear(bend, dr+1, sr-1) && cl.corridorFree(bend) &&
 		!cl.nodesBetween(sr, cl.right(pl.src), bend) && !cl.nodesBetween(dr, bend, cl.left(pl.dst)) {
 		pl.kind = pkRootMerge
 		pl.corrX = bend
-		cl.useCorridor(bend, "")
+		pl.entry = cl.dockLeft(pl, false)
+		cl.useCorridor(bend)
 		return
 	}
 	cl.planUpward(pl, sr, dr, cl.x[pl.src], cl.x[pl.dst], false)
@@ -284,7 +299,7 @@ func (cl *compLayout) planBack(pl *edgePlan, sr, dr int, sx, dx float64) {
 		}
 		x := dx + off
 		if cl.corridorClear(x, dr+1, band-1) && cl.corridorClear(sx, sr+1, band-1) {
-			cl.useCorridor(x, trunk(pl.dst, sBottom))
+			cl.useCorridor(x)
 			pl.kind = pkBackBottom
 			pl.corrX = x
 			pl.g1 = band
@@ -331,6 +346,14 @@ func (cl *compLayout) dock(edge, node string, side nodeSide, approach float64, p
 	return d
 }
 
+// dockLeft registers an edge arriving at its target's left side, ordered by
+// the row it comes from: an edge dropping in from above takes a slot above
+// the centerline, one rising from below takes one under it. A flow running
+// straight along its row is pinned to the centerline.
+func (cl *compLayout) dockLeft(pl *edgePlan, pinned bool) *docking {
+	return cl.dock(pl.id, pl.dst, sLeft, float64(cl.rowOf[pl.src]), pinned, 0)
+}
+
 func (cl *compLayout) lane(gap int, edge string, x1, x2 float64) *laneSeg {
 	s := &laneSeg{edge: edge, x1: x1, x2: x2}
 	cl.gapLanes[gap] = append(cl.gapLanes[gap], s)
@@ -347,27 +370,17 @@ func (cl *compLayout) corridorClear(x float64, lo, hi int) bool {
 	return true
 }
 
-func (cl *compLayout) corridorFree(x float64, owner string) bool {
+func (cl *compLayout) corridorFree(x float64) bool {
 	for _, c := range cl.corridors {
 		if math.Abs(c.x-x) < 12 {
-			if owner != "" && c.owner == owner && math.Abs(c.x-x) < 0.5 {
-				continue // shared trunk into the same docking
-			}
 			return false
 		}
 	}
 	return true
 }
 
-func (cl *compLayout) useCorridor(x float64, owner string) {
-	cl.corridors = append(cl.corridors, corridor{x, owner})
-}
-
-func trunk(node string, side nodeSide) string {
-	if side == sTop {
-		return node + "/top"
-	}
-	return node + "/bottom"
+func (cl *compLayout) useCorridor(x float64) {
+	cl.corridors = append(cl.corridors, corridor{x})
 }
 
 // findCorridor scans candidate x positions (each preference expanded
@@ -381,8 +394,8 @@ func (cl *compLayout) findCorridor(prefs []float64, lo, hi int, extra func(float
 					continue
 				}
 				x := pref + s*float64(k)*20
-				if cl.corridorClear(x, lo, hi) && cl.corridorFree(x, "") && (extra == nil || extra(x)) {
-					cl.useCorridor(x, "")
+				if cl.corridorClear(x, lo, hi) && cl.corridorFree(x) && (extra == nil || extra(x)) {
+					cl.useCorridor(x)
 					return x, true
 				}
 			}
@@ -455,22 +468,96 @@ func (cl *compLayout) laneCount(g int) int {
 	return max
 }
 
+// dockingSpan returns the center an offset is measured from and the largest
+// offset the shape can carry, along the side's own axis. A left docking runs
+// down the shape's height and is ordered by the row the edge comes from;
+// only a rectangle has a straight left border to spread along, so a circle
+// or a diamond keeps its single left point.
+func (cl *compLayout) dockingSpan(key sideKey) (center, max float64) {
+	if key.side != sLeft {
+		return cl.x[key.node], cl.width(key.node)/2 - 4
+	}
+	center = float64(cl.rowOf[key.node])
+	if n := cl.node(key.node); n.Kind.IsEvent() || n.Kind.IsGateway() {
+		return center, 0
+	}
+	return center, cl.height(key.node)/2 - 4
+}
+
 // resolveDockings spreads the dockings of each node side around its center.
+// The offset is where the edge's own run sits; on a diamond corner that is a
+// lane beside the shape rather than a point on it (see stub).
 func (cl *compLayout) resolveDockings() {
 	for key, docks := range cl.sides {
-		w := cl.width(key.node)
+		center, maxOff := cl.dockingSpan(key)
 		var pinned, free []*docking
+		var shared bool
 		for _, d := range docks {
-			if d.pinned {
+			switch {
+			case d.shared: // the split's own trunk: every alternate at the corner
+				d.off = 0
+				shared = true
+			case d.pinned:
 				pinned = append(pinned, d)
-				d.off = d.fixed
-			} else {
+			default:
 				free = append(free, d)
 			}
 		}
-		n := len(free)
-		if n == 0 {
-			continue
+		// placed records resolved offsets; pinned ones need not be whole
+		// multiples of SlotStep, so proximity rather than equality decides.
+		var placed []float64
+		if shared {
+			placed = append(placed, 0)
+		}
+		occupied := func(off float64) bool {
+			if math.Abs(off) > maxOff {
+				return true
+			}
+			for _, p := range placed {
+				if math.Abs(p-off) < SlotStep-1 {
+					return true
+				}
+			}
+			return false
+		}
+		// Candidate offsets: whole multiples of SlotStep around the center,
+		// nearest first, preferring the side the edge approaches from.
+		assign := func(d *docking, from float64) {
+			side := 1.0
+			if d.approach < center {
+				side = -1
+			}
+			d.off = from
+			found := false
+			for k := 0; k <= 6 && !found; k++ {
+				for _, s := range []float64{side, -side} {
+					if k == 0 && s != side {
+						continue
+					}
+					off := from + s*float64(k)*SlotStep
+					if occupied(off) {
+						continue
+					}
+					d.off = off
+					found = true
+					break
+				}
+			}
+			placed = append(placed, d.off)
+		}
+		// Pinned lanes first, the longest reach first: the run that comes
+		// from furthest away keeps the column it validated and the shorter
+		// ones step outwards around it, so a short run stops before the
+		// long one's column instead of cutting across it.
+		sort.SliceStable(pinned, func(i, j int) bool {
+			ri, rj := math.Abs(pinned[i].approach-center), math.Abs(pinned[j].approach-center)
+			if ri != rj {
+				return ri > rj
+			}
+			return pinned[i].edge < pinned[j].edge
+		})
+		for _, d := range pinned {
+			assign(d, d.fixed)
 		}
 		sort.SliceStable(free, func(i, j int) bool {
 			if free[i].approach != free[j].approach {
@@ -478,47 +565,14 @@ func (cl *compLayout) resolveDockings() {
 			}
 			return free[i].edge < free[j].edge
 		})
-		// Candidate offsets: whole multiples of SlotStep around the center,
-		// nearest first, preferring the side the edge approaches from, and
-		// skipping pinned positions.
-		taken := func(off float64) bool {
-			for _, p := range pinned {
-				if math.Abs(p.off-off) < SlotStep-1 {
-					return true
-				}
-			}
-			return false
-		}
-		if len(pinned) == 0 && n == 1 {
-			free[0].off = 0
-			continue
-		}
-		center := cl.x[key.node]
-		used := map[float64]bool{}
 		for _, d := range free {
-			side := 1.0
-			if d.approach < center {
-				side = -1
-			}
-			d.off = 0
-			found := false
-			for k := 0; k <= 6 && !found; k++ {
-				for _, s := range []float64{side, -side} {
-					off := s * float64(k) * SlotStep
-					if k == 0 && s != side {
-						continue
-					}
-					if math.Abs(off) > w/2-4 {
-						continue
-					}
-					if taken(off) || used[off] {
-						continue
-					}
-					d.off = off
-					used[off] = true
-					found = true
-					break
-				}
+			assign(d, 0)
+		}
+		// A diamond has no flat top or bottom: every edge touches the exact
+		// corner point and jogs to its own lane over a short shared stub.
+		if key.side != sLeft && cl.node(key.node).Kind.IsGateway() {
+			for _, d := range docks {
+				d.stub = math.Abs(d.off) > 0.5
 			}
 		}
 	}

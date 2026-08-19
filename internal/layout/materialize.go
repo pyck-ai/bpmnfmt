@@ -182,6 +182,35 @@ func (cl *compLayout) minShapeX() float64 {
 	return min
 }
 
+// sidePts returns the waypoints where an edge meets a node's top or bottom
+// side, ordered away from the shape. A diamond has no flat top or bottom, so
+// the edge touches the exact corner and jogs to its own lane over a short
+// stub; every other shape is met on its lane directly.
+func sidePts(r Rect, side nodeSide, d *docking) []Point {
+	y, dir := r.Bottom(), 1.0
+	if side == sTop {
+		y, dir = r.Y, -1
+	}
+	if !d.stub {
+		return []Point{{r.CX() + d.off, y}}
+	}
+	return []Point{
+		{r.CX(), y},
+		{r.CX(), y + dir*StubLen},
+		{r.CX() + d.off, y + dir*StubLen},
+	}
+}
+
+// reversed returns pts back to front, turning the points leaving a shape
+// into the points arriving at it.
+func reversed(pts []Point) []Point {
+	out := make([]Point, len(pts))
+	for i, p := range pts {
+		out[len(pts)-1-i] = p
+	}
+	return out
+}
+
 // materializeEdges turns plans into waypoints.
 func (cl *compLayout) materializeEdges() {
 	marginBase := cl.minShapeX() - 45
@@ -190,94 +219,95 @@ func (cl *compLayout) materializeEdges() {
 		var pts []Point
 		exitX := func() float64 { return src.CX() + pl.exit.off }
 		entryX := func() float64 { return dst.CX() + pl.entry.off }
+		entryY := func() float64 { return dst.CY() + pl.entry.off }
+		leaves := func(side nodeSide) []Point { return sidePts(src, side, pl.exit) }
+		arrives := func(side nodeSide) []Point { return reversed(sidePts(dst, side, pl.entry)) }
 
 		switch pl.kind {
 		case pkH:
-			pts = []Point{{src.Right(), src.CY()}, {dst.X, dst.CY()}}
+			pts = []Point{{src.Right(), src.CY()}, {dst.X, entryY()}}
 
 		case pkVDown:
-			pts = []Point{{exitX(), src.Bottom()}, {exitX(), dst.Y}}
+			// The two ends share a column unless a docking had to move
+			// aside, in which case the run jogs mid-gap.
+			mid := (src.Bottom() + dst.Y) / 2
+			pts = append(leaves(sBottom), Point{exitX(), mid}, Point{entryX(), mid})
+			pts = append(pts, arrives(sTop)...)
 
 		case pkVUp:
-			pts = []Point{{exitX(), src.Y}, {exitX(), dst.Bottom()}}
+			mid := (src.Y + dst.Bottom()) / 2
+			pts = append(leaves(sTop), Point{exitX(), mid}, Point{entryX(), mid})
+			pts = append(pts, arrives(sBottom)...)
 
 		case pkDownLeftIn:
-			x := src.CX() + pl.exit.off
-			pts = []Point{{x, src.Bottom()}, {x, dst.CY()}, {dst.X, dst.CY()}}
+			pts = append(leaves(sBottom),
+				Point{exitX(), entryY()}, Point{dst.X, entryY()})
 
 		case pkUpLeftIn:
-			x := src.CX() + pl.exit.off
-			pts = []Point{{x, src.Y}, {x, dst.CY()}, {dst.X, dst.CY()}}
+			pts = append(leaves(sTop),
+				Point{exitX(), entryY()}, Point{dst.X, entryY()})
 
 		case pkDownJog:
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
-			pts = []Point{
-				{exitX(), src.Bottom()}, {exitX(), ly},
-				{pl.corrX, ly}, {pl.corrX, dst.CY()}, {dst.X, dst.CY()},
-			}
+			pts = append(leaves(sBottom),
+				Point{exitX(), ly}, Point{pl.corrX, ly},
+				Point{pl.corrX, entryY()}, Point{dst.X, entryY()})
 
 		case pkDownTop:
 			ly1 := cl.laneY(pl.g1, pl.seg1.lane)
 			ly2 := cl.laneY(pl.g2, pl.seg2.lane)
-			pts = []Point{
-				{exitX(), src.Bottom()}, {exitX(), ly1}, {pl.corrX, ly1},
-				{pl.corrX, ly2}, {entryX(), ly2}, {entryX(), dst.Y},
-			}
+			pts = append(leaves(sBottom),
+				Point{exitX(), ly1}, Point{pl.corrX, ly1},
+				Point{pl.corrX, ly2}, Point{entryX(), ly2})
+			pts = append(pts, arrives(sTop)...)
 
 		case pkRightUp:
-			pts = []Point{
-				{src.Right(), src.CY()}, {pl.corrX, src.CY()}, {pl.corrX, dst.Bottom()},
-			}
+			pts = append([]Point{{src.Right(), src.CY()}, {entryX(), src.CY()}},
+				arrives(sBottom)...)
 
 		case pkUpBottom:
 			ly2 := cl.laneY(pl.g2, pl.seg2.lane)
+			pts = leaves(sTop)
 			if pl.seg1 != nil {
 				ly1 := cl.laneY(pl.g1, pl.seg1.lane)
-				pts = []Point{
-					{exitX(), src.Y}, {exitX(), ly1}, {pl.corrX, ly1},
-					{pl.corrX, ly2}, {entryX(), ly2}, {entryX(), dst.Bottom()},
-				}
+				pts = append(pts, Point{exitX(), ly1}, Point{pl.corrX, ly1}, Point{pl.corrX, ly2})
 			} else {
-				pts = []Point{
-					{exitX(), src.Y}, {exitX(), ly2}, {entryX(), ly2}, {entryX(), dst.Bottom()},
-				}
+				pts = append(pts, Point{exitX(), ly2})
 			}
+			pts = append(pts, Point{entryX(), ly2})
+			pts = append(pts, arrives(sBottom)...)
 
 		case pkUnderRow:
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
-			pts = []Point{
-				{exitX(), src.Bottom()}, {exitX(), ly},
-				{entryX(), ly}, {entryX(), dst.Bottom()},
-			}
+			pts = append(leaves(sBottom), Point{exitX(), ly}, Point{entryX(), ly})
+			pts = append(pts, arrives(sBottom)...)
 
 		case pkRootMerge:
 			pts = []Point{
 				{src.Right(), src.CY()}, {pl.corrX, src.CY()},
-				{pl.corrX, dst.CY()}, {dst.X, dst.CY()},
+				{pl.corrX, entryY()}, {dst.X, entryY()},
 			}
 
 		case pkBackBottom:
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
-			pts = []Point{
-				{exitX(), src.Bottom()}, {exitX(), ly},
-				{pl.corrX, ly}, {pl.corrX, dst.Bottom()},
-			}
+			pts = append(leaves(sBottom), Point{exitX(), ly}, Point{entryX(), ly})
+			pts = append(pts, arrives(sBottom)...)
 
 		case pkBackMargin:
 			mx := marginBase - float64(pl.marginIdx)*15
 			ly1 := cl.laneY(pl.g1, pl.seg1.lane)
 			ly2 := cl.laneY(pl.g2, pl.seg2.lane)
-			start := Point{exitX(), src.Bottom()}
-			end := Point{entryX(), dst.Y}
-			if pl.backEntry {
-				end = Point{entryX(), dst.Bottom()}
-			} else if cl.rowOf[pl.src] < cl.rowOf[pl.dst] {
-				start = Point{exitX(), src.Y}
+			exitSide, entrySide := sBottom, sBottom
+			if !pl.backEntry {
+				entrySide = sTop
+				if cl.rowOf[pl.src] < cl.rowOf[pl.dst] {
+					exitSide = sTop
+				}
 			}
-			pts = []Point{
-				start, {exitX(), ly1}, {mx, ly1},
-				{mx, ly2}, {entryX(), ly2}, end,
-			}
+			pts = append(leaves(exitSide),
+				Point{exitX(), ly1}, Point{mx, ly1},
+				Point{mx, ly2}, Point{entryX(), ly2})
+			pts = append(pts, arrives(entrySide)...)
 		}
 		cl.res.Edges[pl.id] = cleanPath(pts)
 	}
