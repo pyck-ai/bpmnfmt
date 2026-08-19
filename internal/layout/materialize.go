@@ -304,6 +304,12 @@ func (cl *compLayout) materializeEdges() {
 			pts = append(leaves(sBottom), Point{exitX(), ly}, Point{entryX(), ly})
 			pts = append(pts, arrives(sBottom)...)
 
+		case pkOverRow:
+			// Same shape as pkUnderRow, arching over the row instead.
+			ly := cl.laneY(pl.g1, pl.seg1.lane)
+			pts = append(leaves(sTop), Point{exitX(), ly}, Point{entryX(), ly})
+			pts = append(pts, arrives(sTop)...)
+
 		case pkRootMerge:
 			pts = []Point{
 				{src.Right(), src.CY()}, {pl.corrX, src.CY()},
@@ -314,6 +320,13 @@ func (cl *compLayout) materializeEdges() {
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
 			pts = append(leaves(sBottom), Point{exitX(), ly}, Point{entryX(), ly})
 			pts = append(pts, arrives(sBottom)...)
+
+		case pkBackTop:
+			// A same-row loop whose sky is free: the way-back line arches
+			// over the row rather than dipping under it.
+			ly := cl.laneY(pl.g1, pl.seg1.lane)
+			pts = append(leaves(sTop), Point{exitX(), ly}, Point{entryX(), ly})
+			pts = append(pts, arrives(sTop)...)
 
 		case pkBackMargin:
 			mx := marginBase - float64(pl.marginIdx)*15

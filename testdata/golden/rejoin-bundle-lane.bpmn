@@ -19,9 +19,15 @@ containing arc further from its row than the arc nested inside it. Here all
 three end at G_Join, so the bundle collapses to a single lane and the order
 only decides where that lane sits relative to anything else in the gap.
 
+The note on "Assess damage" is load-bearing, not decoration: it occupies
+the annotation band above the row (README R8), which is what stops rule M3
+from arching the whole bundle over the spine instead. That makes this
+fixture M3's annotation-blocked negative control as well as L6/M2's
+below-lane one.
+
 Exercises:
-  - the three arcs' long runs share one y,
-  - their risers have three distinct x, all on G_Join's bottom face,
+  - the three arcs' long runs share one y BELOW the row,
+  - they enter G_Join as a single arrow on its bottom corner,
   - the diagram has no crossings at all.</bpmn:documentation>
     <bpmn:startEvent id="Start_Bundle" name="Claim filed">
       <bpmn:outgoing>Flow_start_g1</bpmn:outgoing>
@@ -74,121 +80,132 @@ Exercises:
     <bpmn:sequenceFlow id="Flow_g1_join" name="yes" sourceRef="G1" targetRef="G_Join" />
     <bpmn:sequenceFlow id="Flow_g2_join" name="no" sourceRef="G2" targetRef="G_Join" />
     <bpmn:sequenceFlow id="Flow_g3_join" name="no" sourceRef="G3" targetRef="G_Join" />
+    <bpmn:textAnnotation id="TextAnnotation_assess">
+      <bpmn:text>Photos required over EUR 500.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_assess" associationDirection="None" sourceRef="Task_2" targetRef="TextAnnotation_assess" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_RejoinBundleLane">
       <bpmndi:BPMNShape id="Start_Bundle_di" bpmnElement="Start_Bundle">
-        <dc:Bounds x="60" y="94" width="36" height="36" />
+        <dc:Bounds x="60" y="126" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="50" y="137" width="56" height="15" />
+          <dc:Bounds x="50" y="169" width="56" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="G1_di" bpmnElement="G1" isMarkerVisible="true">
-        <dc:Bounds x="213" y="87" width="50" height="50" />
+        <dc:Bounds x="213" y="119" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="208" y="65" width="59" height="15" />
+          <dc:Bounds x="208" y="97" width="59" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_1_di" bpmnElement="Task_1">
-        <dc:Bounds x="348" y="72" width="100" height="80" />
+        <dc:Bounds x="348" y="104" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="G2_di" bpmnElement="G2" isMarkerVisible="true">
-        <dc:Bounds x="533" y="87" width="50" height="50" />
+        <dc:Bounds x="533" y="119" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="523" y="50" width="71" height="30" />
+          <dc:Bounds x="523" y="82" width="71" height="30" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_2_di" bpmnElement="Task_2">
-        <dc:Bounds x="668" y="72" width="100" height="80" />
+        <dc:Bounds x="668" y="104" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="G3_di" bpmnElement="G3" isMarkerVisible="true">
-        <dc:Bounds x="853" y="87" width="50" height="50" />
+        <dc:Bounds x="853" y="119" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="852" y="50" width="53" height="30" />
+          <dc:Bounds x="852" y="82" width="53" height="30" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_3_di" bpmnElement="Task_3">
-        <dc:Bounds x="988" y="72" width="100" height="80" />
+        <dc:Bounds x="988" y="104" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="G_Join_di" bpmnElement="G_Join" isMarkerVisible="true">
-        <dc:Bounds x="1173" y="87" width="50" height="50" />
+        <dc:Bounds x="1173" y="119" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1163" y="65" width="71" height="15" />
+          <dc:Bounds x="1163" y="97" width="71" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="End_Bundle_di" bpmnElement="End_Bundle">
-        <dc:Bounds x="1340" y="94" width="36" height="36" />
+        <dc:Bounds x="1340" y="126" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1323" y="137" width="69" height="15" />
+          <dc:Bounds x="1323" y="169" width="69" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_assess_di" bpmnElement="TextAnnotation_assess">
+        <dc:Bounds x="639" y="50" width="158" height="40" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_start_g1_di" bpmnElement="Flow_start_g1">
-        <di:waypoint x="96" y="112" />
-        <di:waypoint x="213" y="112" />
+        <di:waypoint x="96" y="144" />
+        <di:waypoint x="213" y="144" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_g1_t1_di" bpmnElement="Flow_g1_t1">
-        <di:waypoint x="263" y="112" />
-        <di:waypoint x="348" y="112" />
+        <di:waypoint x="263" y="144" />
+        <di:waypoint x="348" y="144" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="271" y="92" width="13" height="15" />
+          <dc:Bounds x="271" y="124" width="13" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_t1_g2_di" bpmnElement="Flow_t1_g2">
-        <di:waypoint x="448" y="112" />
-        <di:waypoint x="533" y="112" />
+        <di:waypoint x="448" y="144" />
+        <di:waypoint x="533" y="144" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_g2_t2_di" bpmnElement="Flow_g2_t2">
-        <di:waypoint x="583" y="112" />
-        <di:waypoint x="668" y="112" />
+        <di:waypoint x="583" y="144" />
+        <di:waypoint x="668" y="144" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="591" y="92" width="19" height="15" />
+          <dc:Bounds x="591" y="124" width="19" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_t2_g3_di" bpmnElement="Flow_t2_g3">
-        <di:waypoint x="768" y="112" />
-        <di:waypoint x="853" y="112" />
+        <di:waypoint x="768" y="144" />
+        <di:waypoint x="853" y="144" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_g3_t3_di" bpmnElement="Flow_g3_t3">
-        <di:waypoint x="903" y="112" />
-        <di:waypoint x="988" y="112" />
+        <di:waypoint x="903" y="144" />
+        <di:waypoint x="988" y="144" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="911" y="92" width="19" height="15" />
+          <dc:Bounds x="911" y="124" width="19" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_t3_join_di" bpmnElement="Flow_t3_join">
-        <di:waypoint x="1088" y="112" />
-        <di:waypoint x="1173" y="112" />
+        <di:waypoint x="1088" y="144" />
+        <di:waypoint x="1173" y="144" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_join_end_di" bpmnElement="Flow_join_end">
-        <di:waypoint x="1223" y="112" />
-        <di:waypoint x="1340" y="112" />
+        <di:waypoint x="1223" y="144" />
+        <di:waypoint x="1340" y="144" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_g1_join_di" bpmnElement="Flow_g1_join">
-        <di:waypoint x="238" y="137" />
-        <di:waypoint x="238" y="207" />
-        <di:waypoint x="1198" y="207" />
-        <di:waypoint x="1198" y="137" />
+        <di:waypoint x="238" y="169" />
+        <di:waypoint x="238" y="239" />
+        <di:waypoint x="1198" y="239" />
+        <di:waypoint x="1198" y="169" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="246" y="142" width="19" height="15" />
+          <dc:Bounds x="246" y="174" width="19" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_g2_join_di" bpmnElement="Flow_g2_join">
-        <di:waypoint x="558" y="137" />
-        <di:waypoint x="558" y="207" />
-        <di:waypoint x="1198" y="207" />
-        <di:waypoint x="1198" y="137" />
+        <di:waypoint x="558" y="169" />
+        <di:waypoint x="558" y="239" />
+        <di:waypoint x="1198" y="239" />
+        <di:waypoint x="1198" y="169" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="566" y="142" width="13" height="15" />
+          <dc:Bounds x="566" y="174" width="13" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_g3_join_di" bpmnElement="Flow_g3_join">
-        <di:waypoint x="878" y="137" />
-        <di:waypoint x="878" y="207" />
-        <di:waypoint x="1198" y="207" />
-        <di:waypoint x="1198" y="137" />
+        <di:waypoint x="878" y="169" />
+        <di:waypoint x="878" y="239" />
+        <di:waypoint x="1198" y="239" />
+        <di:waypoint x="1198" y="169" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="886" y="142" width="13" height="15" />
+          <dc:Bounds x="886" y="174" width="13" height="15" />
         </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_assess_di" bpmnElement="Association_assess">
+        <di:waypoint x="718" y="104" />
+        <di:waypoint x="718" y="90" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

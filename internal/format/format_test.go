@@ -35,6 +35,7 @@ var fixtureNames = []string{
 	"rejoin-bundle-lane.bpmn",
 	"rejoin-right-then-up.bpmn",
 	"loop-branch-backwards.bpmn",
+	"sky-over-the-spine.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -491,6 +492,70 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
+	}
+}
+
+// TestSkyOverTheSpine: rule M3. A same-row detour arches ABOVE its row when
+// the sky over the spanned columns is free, and dips below when something
+// occupies it. Below is the fallback, not a deprecated shape.
+func TestSkyOverTheSpine(t *testing.T) {
+	_, _, lay := layoutOf(t, "sky-over-the-spine.bpmn")
+	spine := lay.Shapes["G_A"].CY()
+
+	// The free-sky arc arches over the row.
+	ga, gb := lay.Shapes["G_A"], lay.Shapes["G_B"]
+	up := lay.Edges["Flow_a_b"]
+	if len(up) != 4 {
+		t.Fatalf("Flow_a_b should be a 4-point arch, got %v", up)
+	}
+	if up[0].X != ga.CX() || up[0].Y != ga.Y {
+		t.Errorf("Flow_a_b must leave G_A's top corner (got %v, want %.0f,%.0f)",
+			up[0], ga.CX(), ga.Y)
+	}
+	if up[1].Y >= up[0].Y {
+		t.Errorf("Flow_a_b must rise out of the row (%v -> %v)", up[0], up[1])
+	}
+	for _, pt := range up {
+		if pt.Y > spine {
+			t.Errorf("Flow_a_b must stay above the spine (y=%.0f, spine=%.0f)", pt.Y, spine)
+		}
+	}
+	if last := up[len(up)-1]; math.Abs(last.X-gb.CX()) > gb.W/2-4+0.5 || last.Y > gb.CY() {
+		t.Errorf("Flow_a_b must land on G_B's top face (got %v, cx=%.0f)", last, gb.CX())
+	}
+
+	// The blocked arc dips below it — and the blocker is really up there,
+	// really overlapping the span.
+	blocker := lay.Shapes["Task_L"]
+	gc, gd := lay.Shapes["G_C"], lay.Shapes["G_D"]
+	if blocker.CY() >= spine {
+		t.Fatalf("Task_L must be lifted into the sky (cy=%.0f, spine=%.0f)", blocker.CY(), spine)
+	}
+	if blocker.Right() < gc.CX() || blocker.X > gd.CX() {
+		t.Fatalf("Task_L (%.0f..%.0f) must overlap the G_C..G_D span (%.0f..%.0f)",
+			blocker.X, blocker.Right(), gc.CX(), gd.CX())
+	}
+	down := lay.Edges["Flow_c_d"]
+	if len(down) != 4 {
+		t.Fatalf("Flow_c_d should be a 4-point dip, got %v", down)
+	}
+	for _, pt := range down {
+		if pt.Y < spine {
+			t.Errorf("Flow_c_d must stay below the spine (y=%.0f, spine=%.0f)", pt.Y, spine)
+		}
+	}
+
+	// Concentric arches: the CONTAINING arc sits further from the row.
+	inner := lay.Edges["Flow_ac_ad"]
+	if len(inner) != 4 {
+		t.Fatalf("Flow_ac_ad should be a 4-point arch, got %v", inner)
+	}
+	if !(inner[1].X >= up[1].X && inner[2].X <= up[2].X) {
+		t.Fatalf("Flow_ac_ad must be nested inside Flow_a_b (%v vs %v)", inner, up)
+	}
+	if up[1].Y >= inner[1].Y {
+		t.Errorf("the containing arch must sit further from the row (outer y=%.0f, inner y=%.0f)",
+			up[1].Y, inner[1].Y)
 	}
 }
 

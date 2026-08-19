@@ -83,8 +83,9 @@ spine, and zero forbidden edge crossings.
    three outgoing flows uses all three corners of the diamond: the happy
    path runs straight through, the shorter alternate leaves the top
    corner, the longer the bottom (a branch that loops back never goes up).
-   With four or more outgoing flows the top corner stays unused and every
-   alternate hangs below, stacked longest-first. Entry edges drop in the
+   With four or more outgoing flows the top corner carries no alternate and
+   every alternate hangs below, stacked longest-first (a skip arc or a
+   way-back may still use that corner, see rule 6). Entry edges drop in the
    gateway's own column and turn once into the branch head's left side;
    branch heads align with the column of the first non-gateway node after
    the split, so a run of consecutive gateways shares one branch-head
@@ -97,15 +98,19 @@ spine, and zero forbidden edge crossings.
    the right, and turns up in the target's column — a rectangle is left
    through its right border, never its top. Secondary-start inflows rejoin
    the same way.
-6. **Way-back lines.** Every back edge leaves its source's bottom, drops
-   to a dedicated horizontal line directly below the lower of the two
-   rows, runs backward, and rises into the target's bottom — unless the
-   source sits directly below the target in the same column, in which case
-   the way-back line has zero length and the edge rises straight up.
-   Crossings are allowed on these lines (and only there); multiple loops
-   get stacked lines, wider ones nesting outside narrower ones. Rejoins
-   that share a target also share one lane, so several arcs read as a
-   single line with short risers peeling off it.
+6. **Detour lines.** A back edge leaves its source, runs on a dedicated
+   line clear of the rows, and enters its target. When source and target
+   sit on DIFFERENT rows that line runs below the lower of the two — the
+   edge has to travel between the rows anyway. When they sit on the SAME
+   row the line arches ABOVE it if the sky over the spanned columns is
+   free, and runs below otherwise; a forward skip arc over intervening
+   nodes takes the same shape. Crossings are allowed on these lines (and
+   only there); multiple lines stack, wider ones nesting outside narrower
+   ones — below the row that means further down, above it further up. A
+   way-back whose source sits directly below its target in the same column
+   degenerates to a straight rise (rule 3). Detours that share a target
+   share one lane and enter as a single arrow, so several arcs read as one
+   line growing as each joins it.
 7. **Orthogonal edges, few bends.** Dockings spread out per node side, and
    edges arriving at a gateway land on the diamond's slanted face at their
    own offset — arrowheads never pile onto one point. A vertical corridor

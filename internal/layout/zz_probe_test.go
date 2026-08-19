@@ -20,6 +20,7 @@ var probeFixtures = []string{
 	"lift-only-terminal.bpmn", "cross-link-adjacent.bpmn",
 	"gateway-cluster-columns.bpmn", "rejoin-bundle-lane.bpmn",
 	"rejoin-right-then-up.bpmn", "loop-branch-backwards.bpmn",
+	"sky-over-the-spine.bpmn",
 }
 
 func probeLayout(t *testing.T, name string) (*model.Process, *Result) {

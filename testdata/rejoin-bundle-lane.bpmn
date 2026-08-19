@@ -19,9 +19,15 @@ containing arc further from its row than the arc nested inside it. Here all
 three end at G_Join, so the bundle collapses to a single lane and the order
 only decides where that lane sits relative to anything else in the gap.
 
+The note on "Assess damage" is load-bearing, not decoration: it occupies
+the annotation band above the row (README R8), which is what stops rule M3
+from arching the whole bundle over the spine instead. That makes this
+fixture M3's annotation-blocked negative control as well as L6/M2's
+below-lane one.
+
 Exercises:
-  - the three arcs' long runs share one y,
-  - their risers have three distinct x, all on G_Join's bottom face,
+  - the three arcs' long runs share one y BELOW the row,
+  - they enter G_Join as a single arrow on its bottom corner,
   - the diagram has no crossings at all.</bpmn:documentation>
     <bpmn:startEvent id="Start_Bundle" name="Claim filed">
       <bpmn:outgoing>Flow_start_g1</bpmn:outgoing>
@@ -74,6 +80,10 @@ Exercises:
     <bpmn:sequenceFlow id="Flow_g1_join" name="yes" sourceRef="G1" targetRef="G_Join" />
     <bpmn:sequenceFlow id="Flow_g2_join" name="no" sourceRef="G2" targetRef="G_Join" />
     <bpmn:sequenceFlow id="Flow_g3_join" name="no" sourceRef="G3" targetRef="G_Join" />
+    <bpmn:textAnnotation id="TextAnnotation_assess">
+      <bpmn:text>Photos required over EUR 500.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_assess" associationDirection="None" sourceRef="Task_2" targetRef="TextAnnotation_assess" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_RejoinBundleLane">
     <bpmndi:BPMNPlane id="BPMNPlane_RejoinBundleLane" bpmnElement="Process_RejoinBundleLane" />
