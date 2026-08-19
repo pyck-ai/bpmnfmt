@@ -51,11 +51,14 @@ const marginSentinel = -100.0
 func (s *laneSeg) lo() float64 { return math.Min(s.x1, s.x2) }
 func (s *laneSeg) hi() float64 { return math.Max(s.x1, s.x2) }
 
-// corridor registers a vertical line crossing row bands. Every vertical
-// needs a column of its own: two lines sharing one column merge into a
-// single stroke, and whatever arrowheads they carry stack on top of it.
+// corridor reserves a column over the band of rows a vertical traverses
+// (lo..hi inclusive). Two lines sharing one column merge into a single
+// stroke, and whatever arrowheads they carry stack on top of it — but only
+// where they actually overlap, so verticals whose row bands are disjoint may
+// share a column.
 type corridor struct {
-	x float64
+	x      float64
+	lo, hi int
 }
 
 type planKind int
@@ -157,25 +160,26 @@ func (cl *compLayout) planBranchEntry(pl *edgePlan, sr, dr int) {
 	pl.exit = cl.dock(pl.id, pl.src, side, gx, true, 0)
 	pl.exit.shared = true
 	pl.entry = cl.dockLeft(pl, false)
-	cl.useCorridor(gx)
+	lo, hi := rowBand(sr, dr)
+	cl.useCorridor(gx, lo, hi)
 }
 
 func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
-	if aligned && cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx) {
+	if aligned && cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx, sr, dr) {
 		pl.kind = pkVDown
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, true, 0)
 		pl.entry = cl.dock(pl.id, pl.dst, sTop, sx, true, 0)
-		cl.useCorridor(sx)
+		cl.useCorridor(sx, sr, dr)
 		return
 	}
 	// Drop straight down at the source, enter the target's left side.
-	if cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx) &&
+	if cl.corridorClear(sx, sr+1, dr-1) && cl.corridorFree(sx, sr, dr) &&
 		sx < cl.left(pl.dst) && !cl.nodesBetween(dr, sx, cl.left(pl.dst)) {
 		pl.kind = pkDownLeftIn
 		pl.corrX = sx
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, false, 0)
 		pl.entry = cl.dockLeft(pl, false)
-		cl.useCorridor(sx)
+		cl.useCorridor(sx, sr, dr)
 		return
 	}
 	// Jog through the gap below the source row to a corridor, then down into
@@ -199,7 +203,9 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 		pl.g2 = dr
 		pl.seg2 = cl.lane(dr, pl.id, corr, dx)
 		pl.exit = cl.dock(pl.id, pl.src, sBottom, corr, false, 0)
-		pl.entry = cl.dock(pl.id, pl.dst, sTop, corr, false, 0)
+		// The approach runs in the corridor's own column, so the entry
+		// docking is pinned there: no tail jog off the vertical.
+		pl.entry = cl.dockAtCorridor(pl.id, pl.dst, sTop, corr, dx)
 		return
 	}
 	cl.planMargin(pl, sr, dr, false)
@@ -207,11 +213,11 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 
 // planUpward: source row below target row, forward direction (rejoin).
 func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
-	if aligned && cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx) {
+	if aligned && cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx, dr, sr) {
 		pl.kind = pkVUp
 		pl.exit = cl.dock(pl.id, pl.src, sTop, dx, true, 0)
 		pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, 0)
-		cl.useCorridor(sx)
+		cl.useCorridor(sx, dr, sr)
 		return
 	}
 	// Preferred rejoin shape: leave the source to the right, then rise
@@ -230,8 +236,8 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 			x := dx + off
 			if x > cl.right(pl.src)+10 &&
 				!cl.nodesBetween(sr, cl.right(pl.src), x) &&
-				cl.corridorClear(x, dr+1, sr) && cl.corridorFree(x) {
-				cl.useCorridor(x)
+				cl.corridorClear(x, dr+1, sr) && cl.corridorFree(x, dr, sr) {
+				cl.useCorridor(x, dr, sr)
 				pl.kind = pkRightUp
 				pl.corrX = x
 				pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, x-dx)
@@ -242,14 +248,21 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 	if corr, ok := cl.findCorridor([]float64{sx, dx}, dr+1, sr-1, nil); ok {
 		pl.kind = pkUpBottom
 		pl.corrX = corr
-		if corr != sx {
+		// Gap sr and gap dr+1 are the same channel when the rows are
+		// adjacent; jogging would lay two lanes of one edge into it. Leave
+		// through the corridor column directly and use the single lane.
+		if corr != sx && sr != dr+1 {
 			pl.g1 = sr
 			pl.seg1 = cl.lane(sr, pl.id, sx, corr)
 		}
 		pl.g2 = dr + 1
 		pl.seg2 = cl.lane(dr+1, pl.id, corr, dx)
-		pl.exit = cl.dock(pl.id, pl.src, sTop, corr, false, 0)
-		pl.entry = cl.dock(pl.id, pl.dst, sBottom, corr, false, 0)
+		if pl.seg1 == nil {
+			pl.exit = cl.dockAtCorridor(pl.id, pl.src, sTop, corr, sx)
+		} else {
+			pl.exit = cl.dock(pl.id, pl.src, sTop, corr, false, 0)
+		}
+		pl.entry = cl.dockAtCorridor(pl.id, pl.dst, sBottom, corr, dx)
 		return
 	}
 	cl.planMargin(pl, sr, dr, false)
@@ -258,12 +271,13 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 // planRootMerge: secondary-start chains fan into the merge target's left side.
 func (cl *compLayout) planRootMerge(pl *edgePlan, sr, dr int) {
 	bend := cl.left(pl.dst) - BendBeforeTarget
-	if cl.corridorClear(bend, dr+1, sr-1) && cl.corridorFree(bend) &&
+	lo, hi := rowBand(sr, dr)
+	if cl.corridorClear(bend, dr+1, sr-1) && cl.corridorFree(bend, lo, hi) &&
 		!cl.nodesBetween(sr, cl.right(pl.src), bend) && !cl.nodesBetween(dr, bend, cl.left(pl.dst)) {
 		pl.kind = pkRootMerge
 		pl.corrX = bend
 		pl.entry = cl.dockLeft(pl, false)
-		cl.useCorridor(bend)
+		cl.useCorridor(bend, lo, hi)
 		return
 	}
 	cl.planUpward(pl, sr, dr, cl.x[pl.src], cl.x[pl.dst], false)
@@ -299,7 +313,8 @@ func (cl *compLayout) planBack(pl *edgePlan, sr, dr int, sx, dx float64) {
 		}
 		x := dx + off
 		if cl.corridorClear(x, dr+1, band-1) && cl.corridorClear(sx, sr+1, band-1) {
-			cl.useCorridor(x)
+			lo, hi := rowBand(sr, dr)
+			cl.useCorridor(x, lo, hi)
 			pl.kind = pkBackBottom
 			pl.corrX = x
 			pl.g1 = band
@@ -346,6 +361,17 @@ func (cl *compLayout) dock(edge, node string, side nodeSide, approach float64, p
 	return d
 }
 
+// dockAtCorridor pins a docking to the corridor's column so the final run
+// into (or out of) the shape is straight. A corridor further out than the
+// side can reach keeps a free docking: the edge has to step across anyway,
+// and a pin the shape cannot honour drifts to an arbitrary slot instead.
+func (cl *compLayout) dockAtCorridor(edge, node string, side nodeSide, corr, cx float64) *docking {
+	if math.Abs(corr-cx) <= cl.width(node)/2-4 {
+		return cl.dock(edge, node, side, corr, true, corr-cx)
+	}
+	return cl.dock(edge, node, side, corr, false, 0)
+}
+
 // dockLeft registers an edge arriving at its target's left side, ordered by
 // the row it comes from: an edge dropping in from above takes a slot above
 // the centerline, one rising from below takes one under it. A flow running
@@ -370,17 +396,27 @@ func (cl *compLayout) corridorClear(x float64, lo, hi int) bool {
 	return true
 }
 
-func (cl *compLayout) corridorFree(x float64) bool {
+// corridorFree reports whether a vertical spanning rows lo..hi can own the
+// column x. Only a corridor whose own band overlaps lo..hi conflicts.
+func (cl *compLayout) corridorFree(x float64, lo, hi int) bool {
 	for _, c := range cl.corridors {
-		if math.Abs(c.x-x) < 12 {
+		if math.Abs(c.x-x) < 12 && !(hi < c.lo || lo > c.hi) {
 			return false
 		}
 	}
 	return true
 }
 
-func (cl *compLayout) useCorridor(x float64) {
-	cl.corridors = append(cl.corridors, corridor{x})
+func (cl *compLayout) useCorridor(x float64, lo, hi int) {
+	cl.corridors = append(cl.corridors, corridor{x, lo, hi})
+}
+
+// rowBand is the inclusive row range a vertical between two rows traverses.
+func rowBand(a, b int) (int, int) {
+	if a > b {
+		return b, a
+	}
+	return a, b
 }
 
 // findCorridor scans candidate x positions (each preference expanded
@@ -394,8 +430,8 @@ func (cl *compLayout) findCorridor(prefs []float64, lo, hi int, extra func(float
 					continue
 				}
 				x := pref + s*float64(k)*20
-				if cl.corridorClear(x, lo, hi) && cl.corridorFree(x) && (extra == nil || extra(x)) {
-					cl.useCorridor(x)
+				if cl.corridorClear(x, lo, hi) && cl.corridorFree(x, lo, hi) && (extra == nil || extra(x)) {
+					cl.useCorridor(x, lo, hi)
 					return x, true
 				}
 			}

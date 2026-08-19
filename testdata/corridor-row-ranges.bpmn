@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CorridorRowRanges" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_CorridorRowRanges" name="Corridor row ranges" isExecutable="true">
+    <bpmn:documentation>Rule L2 fixture: a corridor reservation covers a column AND the band of rows
+the vertical traverses, so two verticals may share one column whenever their
+row bands are disjoint.
+
+Shape: Start -&gt; G_Top -&gt; G_Mid -&gt; After -&gt; End on the spine, with a
+two-node loop hanging under G_Mid (Low -&gt; Join) plus a direct G_Mid -&gt; Join
+cross flow, and Join looping back up to G_Top.
+
+The three verticals leaving G_Mid and the rejoin into G_Top all want the same
+neighbourhood of columns. Under the old whole-diagram reservation each one
+had to step 20px sideways from the last, which is what produced the
+staircase-shaped rejoins; with per-row-range reservations a vertical only
+has to dodge another vertical whose rows it actually shares.
+
+Exercises:
+  - every vertical run in the diagram owns its column over the rows it
+    crosses (no two edges share a collinear vertical run),
+  - an edge that jogs between two ADJACENT rows uses one lane, not two in
+    the same gap, so no route doubles back on itself,
+  - an edge routed through a corridor enters its target in the corridor's
+    own column: the final approach is straight, with no short tail jog.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Corridor" name="Batch received">
+      <bpmn:outgoing>Flow_start_top</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_top" sourceRef="Start_Corridor" targetRef="G_Top" />
+    <bpmn:exclusiveGateway id="G_Top" name="More work?">
+      <bpmn:incoming>Flow_start_top</bpmn:incoming>
+      <bpmn:incoming>Flow_join_top</bpmn:incoming>
+      <bpmn:outgoing>Flow_top_mid</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_top_mid" sourceRef="G_Top" targetRef="G_Mid" />
+    <bpmn:exclusiveGateway id="G_Mid" name="Route item">
+      <bpmn:incoming>Flow_top_mid</bpmn:incoming>
+      <bpmn:outgoing>Flow_mid_after</bpmn:outgoing>
+      <bpmn:outgoing>Flow_mid_low</bpmn:outgoing>
+      <bpmn:outgoing>Flow_mid_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_mid_after" name="done" sourceRef="G_Mid" targetRef="Task_After" />
+    <bpmn:serviceTask id="Task_After" name="Close batch">
+      <bpmn:incoming>Flow_mid_after</bpmn:incoming>
+      <bpmn:outgoing>Flow_after_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_after_end" sourceRef="Task_After" targetRef="End_Corridor" />
+    <bpmn:endEvent id="End_Corridor" name="Batch closed">
+      <bpmn:incoming>Flow_after_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_mid_low" name="rework" sourceRef="G_Mid" targetRef="Task_Low" />
+    <bpmn:serviceTask id="Task_Low" name="Rework item">
+      <bpmn:incoming>Flow_mid_low</bpmn:incoming>
+      <bpmn:outgoing>Flow_low_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_low_join" sourceRef="Task_Low" targetRef="Task_Join" />
+    <bpmn:sequenceFlow id="Flow_mid_join" name="skip" sourceRef="G_Mid" targetRef="Task_Join" />
+    <bpmn:serviceTask id="Task_Join" name="Settle item">
+      <bpmn:incoming>Flow_low_join</bpmn:incoming>
+      <bpmn:incoming>Flow_mid_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_join_top</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_join_top" sourceRef="Task_Join" targetRef="G_Top" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_CorridorRowRanges">
+    <bpmndi:BPMNPlane id="BPMNPlane_CorridorRowRanges" bpmnElement="Process_CorridorRowRanges" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
