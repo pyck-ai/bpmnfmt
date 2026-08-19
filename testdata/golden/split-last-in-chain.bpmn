@@ -74,12 +74,12 @@ acceptance test is needed because a regression here fails as a hard error.</bpmn
         <dc:Bounds x="515" y="187" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Consolidate_di" bpmnElement="Task_Consolidate">
-        <dc:Bounds x="515" y="57" width="100" height="80" />
+        <dc:Bounds x="675" y="57" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="End_Routed_di" bpmnElement="End_Routed">
-        <dc:Bounds x="707" y="79" width="36" height="36" />
+        <dc:Bounds x="867" y="79" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="684" y="122" width="82" height="15" />
+          <dc:Bounds x="844" y="122" width="82" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_start_to_prepare_di" bpmnElement="Flow_start_to_prepare">
@@ -92,7 +92,7 @@ acceptance test is needed because a regression here fails as a hard error.</bpmn
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_route_direct_di" bpmnElement="Flow_route_direct">
         <di:waypoint x="430" y="97" />
-        <di:waypoint x="515" y="97" />
+        <di:waypoint x="675" y="97" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="438" y="77" width="13" height="15" />
         </bpmndi:BPMNLabel>
@@ -106,12 +106,13 @@ acceptance test is needed because a regression here fails as a hard error.</bpmn
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_review_to_consolidate_di" bpmnElement="Flow_review_to_consolidate">
-        <di:waypoint x="565" y="187" />
-        <di:waypoint x="565" y="137" />
+        <di:waypoint x="615" y="227" />
+        <di:waypoint x="725" y="227" />
+        <di:waypoint x="725" y="137" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_consolidate_to_end_di" bpmnElement="Flow_consolidate_to_end">
-        <di:waypoint x="615" y="97" />
-        <di:waypoint x="707" y="97" />
+        <di:waypoint x="775" y="97" />
+        <di:waypoint x="867" y="97" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

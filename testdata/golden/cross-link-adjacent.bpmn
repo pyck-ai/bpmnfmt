@@ -176,9 +176,8 @@ Exercises:
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_H_I_di" bpmnElement="Flow_H_I">
         <di:waypoint x="621" y="220" />
-        <di:waypoint x="656" y="220" />
-        <di:waypoint x="656" y="104" />
-        <di:waypoint x="681" y="104" />
+        <di:waypoint x="731" y="220" />
+        <di:waypoint x="731" y="130" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_H_J_di" bpmnElement="Flow_H_J">
         <di:waypoint x="571" y="260" />

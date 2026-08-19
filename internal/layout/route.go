@@ -214,24 +214,23 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 }
 
 // planUpward: source row below target row, forward direction (rejoin).
+//
+// Rule L1 makes right-then-up the preferred shape: leave the source through
+// its right border, run along its own row and turn once in the TARGET'S
+// column, entering the target's bottom face. Only when that is impossible
+// does an aligned tail rise straight out of its top — which is the right
+// shape for a gateway or event tail, whose corner or point has no flat
+// border to leave sideways from, and whose `dx > sx` gate is false anyway
+// because assignX aligns it under the target.
 func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
-	if aligned && cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx, dr, sr) {
-		pl.kind = pkVUp
-		pl.exit = cl.dock(pl.id, pl.src, sTop, dx, true, 0)
-		pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, 0)
-		cl.useCorridor(sx, dr, sr)
-		return
-	}
-	// Preferred rejoin shape: leave the source to the right, then rise
-	// straight up into the target's bottom — one bend, with the vertical
-	// merging into the target's center trunk when siblings share the entry.
 	if dx > sx {
-		side := -1.0
-		if sx > dx {
-			side = 1
-		}
+		// Offsets to the RIGHT first. Every rejoin approaches from the left
+		// along its own row, so a riser coming from a deeper row has to
+		// clear the horizontal approach of every shallower one: it can only
+		// do that by turning up further right than they do. Stepping left
+		// instead puts the deeper riser straight through them.
 		halfW := cl.width(pl.dst)/2 - 4
-		for _, off := range []float64{0, side * SlotStep, side * 2 * SlotStep} {
+		for _, off := range []float64{0, SlotStep, 2 * SlotStep, -SlotStep, -2 * SlotStep} {
 			if math.Abs(off) > halfW {
 				continue
 			}
@@ -246,6 +245,13 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 				return
 			}
 		}
+	}
+	if aligned && cl.corridorClear(sx, dr+1, sr-1) && cl.corridorFree(sx, dr, sr) {
+		pl.kind = pkVUp
+		pl.exit = cl.dock(pl.id, pl.src, sTop, dx, true, 0)
+		pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, 0)
+		cl.useCorridor(sx, dr, sr)
+		return
 	}
 	if corr, ok := cl.findCorridor([]float64{sx, dx}, dr+1, sr-1, nil); ok {
 		pl.kind = pkUpBottom
@@ -270,19 +276,63 @@ func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, align
 	cl.planMargin(pl, sr, dr, false)
 }
 
-// planRootMerge: secondary-start chains fan into the merge target's left side.
+// planRootMerge: a secondary-start chain rejoins with the same shape as any
+// other (rule L1) — right out of its tail, up in the target's column, into
+// the target's bottom face. The old left-side fan-in is kept only as a last
+// resort, because a target's left side carries a single docking point on an
+// event or a gateway: two inflows there land one arrowhead on top of another.
 func (cl *compLayout) planRootMerge(pl *edgePlan, sr, dr int) {
+	sx, dx := cl.x[pl.src], cl.x[pl.dst]
+	cl.planUpward(pl, sr, dr, sx, dx, math.Abs(sx-dx) < 0.5)
+	if pl.kind != pkBackMargin {
+		return
+	}
 	bend := cl.left(pl.dst) - BendBeforeTarget
 	lo, hi := rowBand(sr, dr)
 	if cl.corridorClear(bend, dr+1, sr-1) && cl.corridorFree(bend, lo, hi) &&
 		!cl.nodesBetween(sr, cl.right(pl.src), bend) && !cl.nodesBetween(dr, bend, cl.left(pl.dst)) {
+		cl.undoMargin(pl)
 		pl.kind = pkRootMerge
 		pl.corrX = bend
 		pl.entry = cl.dockLeft(pl, false)
 		cl.useCorridor(bend, lo, hi)
-		return
 	}
-	cl.planUpward(pl, sr, dr, cl.x[pl.src], cl.x[pl.dst], false)
+}
+
+// undoMargin releases the lane segments and dockings a margin route
+// reserved, so a better plan can replace it.
+func (cl *compLayout) undoMargin(pl *edgePlan) {
+	drop := func(g int, s *laneSeg) {
+		if s == nil || g < 0 || g >= len(cl.gapLanes) {
+			return
+		}
+		for i, o := range cl.gapLanes[g] {
+			if o == s {
+				cl.gapLanes[g] = append(cl.gapLanes[g][:i], cl.gapLanes[g][i+1:]...)
+				return
+			}
+		}
+	}
+	drop(pl.g1, pl.seg1)
+	drop(pl.g2, pl.seg2)
+	pl.seg1, pl.seg2 = nil, nil
+	for _, d := range []*docking{pl.exit, pl.entry} {
+		if d == nil {
+			continue
+		}
+		k := sideKey{pl.src, d.side}
+		if d == pl.entry {
+			k = sideKey{pl.dst, d.side}
+		}
+		for i, o := range cl.sides[k] {
+			if o == d {
+				cl.sides[k] = append(cl.sides[k][:i], cl.sides[k][i+1:]...)
+				break
+			}
+		}
+	}
+	pl.exit, pl.entry = nil, nil
+	cl.marginUse--
 }
 
 // planUnderRow: forward hop past intervening nodes on the shared row,

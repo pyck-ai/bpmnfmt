@@ -178,9 +178,8 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1o0hl68_di" bpmnElement="Flow_1o0hl68">
         <di:waypoint x="108" y="850" />
-        <di:waypoint x="175" y="850" />
-        <di:waypoint x="175" y="734" />
-        <di:waypoint x="200" y="734" />
+        <di:waypoint x="250" y="850" />
+        <di:waypoint x="250" y="760" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_0cirger_di" bpmnElement="Flow_0cirger">
         <di:waypoint x="300" y="720" />

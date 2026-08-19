@@ -32,6 +32,7 @@ var fixtureNames = []string{
 	"cross-link-adjacent.bpmn",
 	"gateway-cluster-columns.bpmn",
 	"rejoin-bundle-lane.bpmn",
+	"rejoin-right-then-up.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -61,19 +62,8 @@ func fixture(t *testing.T, name string) *model.File {
 
 // maxCrossings: budget for FORBIDDEN crossings (pairs not involving a
 // way-back edge; crossings on way-back lines are allowed by design). Zero
-// everywhere except where a rule that is only half-implemented pays for it.
-var maxCrossings = map[string]int{
-	// Rule L4 aligns every branch head of a gateway cluster to one column,
-	// so the entry elbow of the FIRST gateway now runs along its row past
-	// the column of the SECOND, whose trunk drops through that row to reach
-	// the tier below. Both routes are structurally fixed by planBranchEntry
-	// (leave the corner, run in the gateway's own column, turn once into
-	// the head's left side), so with one shared head column the deeper
-	// trunk necessarily crosses the shallower entry. Removing it needs the
-	// branch-entry routing rules that are still outstanding (L6/L1/L3); it
-	// is budgeted here rather than hidden.
-	"gateway-cluster-columns.bpmn": 1,
-}
+// everywhere.
+var maxCrossings = map[string]int{}
 
 func TestFormatFixtures(t *testing.T) {
 	for _, name := range fixtureNames {
@@ -499,6 +489,108 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 		if pt.Y < gw.CY() {
 			t.Errorf("the back edge must stay below the spine row (y=%.0f)", pt.Y)
 		}
+	}
+}
+
+// TestRejoinRightThenUp: rule L1. A rejoin leaves its source's right border,
+// runs along its own row and turns once in the target's column, entering the
+// target's bottom face. An activity tail is de-aligned to leave room for
+// that turn; a gateway tail, having no flat right border, stays aligned and
+// leaves its top corner.
+func TestRejoinRightThenUp(t *testing.T) {
+	_, _, lay := layoutOf(t, "rejoin-right-then-up.bpmn")
+	altB, join, check := lay.Shapes["Task_AltB"], lay.Shapes["G_Join"], lay.Shapes["G_Check"]
+
+	// The activity tail stops short, with a full gap to turn up in.
+	if altB.Right()+layout.GapX > join.X+0.5 {
+		t.Errorf("Task_AltB (ends %.0f) must clear G_Join (starts %.0f) by GapX=%.0f",
+			altB.Right(), join.X, layout.GapX)
+	}
+	pts := lay.Edges["Flow_altB_join"]
+	if len(pts) != 3 {
+		t.Fatalf("Flow_altB_join must be a 3-point right-then-up elbow, got %v", pts)
+	}
+	if pts[0].X != altB.Right() || pts[0].Y != altB.CY() {
+		t.Errorf("Flow_altB_join must leave the tail's right border (got %v, want %.0f,%.0f)",
+			pts[0], altB.Right(), altB.CY())
+	}
+	if pts[1].Y != pts[0].Y || pts[1].X != pts[2].X {
+		t.Errorf("Flow_altB_join must run along its row then turn once up (%v)", pts)
+	}
+	if d := math.Abs(pts[2].X - join.CX()); d > join.W/2-4+0.5 {
+		t.Errorf("Flow_altB_join must turn inside G_Join's bottom face (x=%.0f, cx=%.0f)",
+			pts[2].X, join.CX())
+	}
+	if pts[2].Y > join.Bottom()+0.5 || pts[2].Y >= pts[1].Y {
+		t.Errorf("Flow_altB_join must rise into G_Join's bottom (%v)", pts)
+	}
+
+	// The gateway tail keeps the aligned vertical out of its top corner.
+	if d := check.CX() - join.CX(); d > 0.5 || d < -0.5 {
+		t.Errorf("G_Check must stay aligned under G_Join (dx=%.0f)", d)
+	}
+	cj := lay.Edges["Flow_check_join"]
+	if len(cj) < 2 {
+		t.Fatalf("Flow_check_join has too few waypoints: %v", cj)
+	}
+	if cj[0].X != check.CX() || cj[0].Y != check.Y {
+		t.Errorf("Flow_check_join must leave G_Check's top corner (got %v, want %.0f,%.0f)",
+			cj[0], check.CX(), check.Y)
+	}
+}
+
+// TestNoRiserOutOfAnActivityTop: rule L1's negative half, over every fixture.
+// A line leaving the flat top edge of a rectangle reads as a different kind
+// of connection than the sequence flow it is; rectangles are left through
+// their right border.
+func TestNoRiserOutOfAnActivityTop(t *testing.T) {
+	for _, name := range fixtureNames {
+		t.Run(name, func(t *testing.T) {
+			p, _, lay := layoutOf(t, name)
+			for _, sc := range []*model.Process{p} {
+				for _, fl := range sc.Flows {
+					n := sc.NodeByID[fl.SourceRef]
+					if n == nil || n.Kind.IsEvent() || n.Kind.IsGateway() {
+						continue
+					}
+					pts := lay.Edges[fl.ID]
+					if len(pts) < 2 {
+						continue
+					}
+					src := lay.Shapes[fl.SourceRef]
+					if pts[0].Y == src.Y && pts[1].X == pts[0].X && pts[1].Y < pts[0].Y {
+						t.Errorf("%s rises out of %s's top edge at %v", fl.ID, fl.SourceRef, pts[0])
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestNoDownwardRejoin is the L5/L1 interlock: L5 guarantees no chain tail
+// rejoins downward, which is why L1 needs no right-then-DOWN shape. An edge
+// arriving at a bottom face must therefore always be rising.
+func TestNoDownwardRejoin(t *testing.T) {
+	for _, name := range fixtureNames {
+		t.Run(name, func(t *testing.T) {
+			p, _, lay := layoutOf(t, name)
+			for _, fl := range p.Flows {
+				pts := lay.Edges[fl.ID]
+				if len(pts) < 2 {
+					continue
+				}
+				dst := lay.Shapes[fl.TargetRef]
+				last, prev := pts[len(pts)-1], pts[len(pts)-2]
+				if last.Y < dst.CY() || last.Y > dst.Bottom()+0.5 {
+					continue // not a bottom-face arrival
+				}
+				if prev.Y < last.Y-0.5 {
+					t.Errorf("%s enters %s's bottom face from ABOVE (%v -> %v): "+
+						"a downward rejoin would need a right-then-down shape",
+						fl.ID, fl.TargetRef, prev, last)
+				}
+			}
+		})
 	}
 }
 

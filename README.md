@@ -65,13 +65,20 @@ spine, and zero forbidden edge crossings.
    `-happy-end`; the branch that feeds a loop back to this gateway (loops
    read forward, see rule 3); the branch that reaches an end event; the
    first-declared flow. Overrides apply to the top-level process only —
-   they are silently ignored inside expanded sub-processes.
+   they are silently ignored inside expanded sub-processes. Off the spine,
+   a chain continues into the successor that links back into already-placed
+   work, so cross-linked nodes stay on an adjacent row instead of being
+   buried and routed around the diagram.
 2. **Grid.** Node centers snap to a 160px column grid and shared row
    centerlines — elements line up horizontally and vertically.
 3. **Loops read forward.** At a gateway that a loop returns to, the loop
    body *is* the main line: it continues straight through the diamond, the
    way-back line returns below, and the loop's exit rises out of the top
    corner. The work stays on one row; leaving the loop is the detour.
+   A branch whose only exit is a back edge upstream on its own chain, with
+   no sub-branches, is laid out right to left instead — head under the
+   split, tail under the loop target — provided marching left at natural
+   spacing fills that span exactly. Such a branch is its own way-back line.
 4. **Branches use the gateway's corners.** A spine gateway with exactly
    three outgoing flows uses all three corners of the diamond: the happy
    path runs straight through, the shorter alternate leaves the top
@@ -79,18 +86,31 @@ spine, and zero forbidden edge crossings.
    With four or more outgoing flows the top corner stays unused and every
    alternate hangs below, stacked longest-first. Entry edges drop in the
    gateway's own column and turn once into the branch head's left side;
-   branch heads align with the happy successor's column. Gateways inside
-   a branch always stack their alternates below.
-5. **Straight rejoins.** Branch tails align under their merge target and
-   rise vertically into its bottom edge.
+   branch heads align with the column of the first non-gateway node after
+   the split, so a run of consecutive gateways shares one branch-head
+   column. Gateways inside a branch always stack their alternates below.
+   A branch is routed above the spine only when its whole subtree is
+   terminal — one that re-merges downstream hangs below, however short.
+5. **Rejoins turn in the target's column.** Branch tails whose last node is
+   a gateway or event align under their merge target and rise vertically
+   into its bottom edge. An activity tail stops one column short, leaves to
+   the right, and turns up in the target's column — a rectangle is left
+   through its right border, never its top. Secondary-start inflows rejoin
+   the same way.
 6. **Way-back lines.** Every back edge leaves its source's bottom, drops
    to a dedicated horizontal line directly below the lower of the two
-   rows, runs backward, and rises into the target's bottom. Crossings are
-   allowed on these lines (and only there); multiple loops get stacked
-   lines, wider ones nesting outside narrower ones.
+   rows, runs backward, and rises into the target's bottom — unless the
+   source sits directly below the target in the same column, in which case
+   the way-back line has zero length and the edge rises straight up.
+   Crossings are allowed on these lines (and only there); multiple loops
+   get stacked lines, wider ones nesting outside narrower ones. Rejoins
+   that share a target also share one lane, so several arcs read as a
+   single line with short risers peeling off it.
 7. **Orthogonal edges, few bends.** Dockings spread out per node side, and
    edges arriving at a gateway land on the diamond's slanted face at their
-   own offset — arrowheads never pile onto one point.
+   own offset — arrowheads never pile onto one point. A vertical corridor
+   is reserved per column *and* row band, so two verticals may share a
+   column when the rows they cross do not overlap.
 8. **Annotations.** Short notes sit in a band directly above their anchor;
    prose notes are parked above or below the diagram with a short, clear
    association line.

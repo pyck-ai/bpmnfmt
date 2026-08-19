@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_RejoinRightThenUp" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_RejoinRightThenUp" name="Rejoin right then up" isExecutable="true">
+    <bpmn:documentation>Rule L1 fixture: a forward flow changing row to reach its merge target
+leaves its source's RIGHT side, runs along its own row, turns once in the
+TARGET'S COLUMN and enters the target's bottom face.
+
+That needs room, so a chain tail which is an ACTIVITY with exactly one
+forward outgoing flow is never aligned under its merge target — it stops at
+least one column to the left and turns up in the gap. A tail which is a
+GATEWAY or EVENT has no flat right border to leave from, so it keeps the
+aligned straight vertical out of its corner or point.
+
+Shape: Start -&gt; Prepare -&gt; G_Split -&gt; Main1 -&gt; Main2 -&gt; G_Join -&gt; End
+on the spine, with two alternates rejoining G_Join:
+
+  AltA -&gt; AltB          activity tail  -&gt; de-aligned, right-then-up
+  AltC -&gt; G_Check       gateway tail   -&gt; aligned, straight up
+
+Both alternates re-merge, so rule L5 keeps them below; the two shapes sit
+side by side in one diagram, which is what makes this discriminating.
+
+Before L1 an activity tail was aligned under its target and rose out of its
+own TOP edge — a line leaving the top of a rectangle, which reads as a
+different kind of connection than the sequence flow it is.
+
+Exercises:
+  - the activity tail stops a column short and its rejoin is a 3-point
+    right-then-up elbow landing on G_Join's bottom face,
+  - the gateway tail stays aligned and leaves its top corner,
+  - no edge anywhere leaves the top edge of a rectangle.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Rejoin" name="Request filed">
+      <bpmn:outgoing>Flow_start_prepare</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_prepare" sourceRef="Start_Rejoin" targetRef="Task_Prepare" />
+    <bpmn:serviceTask id="Task_Prepare" name="Prepare request">
+      <bpmn:incoming>Flow_start_prepare</bpmn:incoming>
+      <bpmn:outgoing>Flow_prepare_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_prepare_split" sourceRef="Task_Prepare" targetRef="G_Split" />
+    <bpmn:exclusiveGateway id="G_Split" name="Which route?">
+      <bpmn:incoming>Flow_prepare_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_split_main1</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_altA</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_altC</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_split_main1" name="standard" sourceRef="G_Split" targetRef="Task_Main1" />
+    <bpmn:serviceTask id="Task_Main1" name="Validate request">
+      <bpmn:incoming>Flow_split_main1</bpmn:incoming>
+      <bpmn:outgoing>Flow_main1_main2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_main1_main2" sourceRef="Task_Main1" targetRef="Task_Main2" />
+    <bpmn:serviceTask id="Task_Main2" name="Price request">
+      <bpmn:incoming>Flow_main1_main2</bpmn:incoming>
+      <bpmn:outgoing>Flow_main2_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_main2_join" sourceRef="Task_Main2" targetRef="G_Join" />
+    <bpmn:exclusiveGateway id="G_Join" name="Routed">
+      <bpmn:incoming>Flow_main2_join</bpmn:incoming>
+      <bpmn:incoming>Flow_altB_join</bpmn:incoming>
+      <bpmn:incoming>Flow_check_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_join_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_join_end" sourceRef="G_Join" targetRef="End_Rejoin" />
+    <bpmn:endEvent id="End_Rejoin" name="Request routed">
+      <bpmn:incoming>Flow_join_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_split_altA" name="manual" sourceRef="G_Split" targetRef="Task_AltA" />
+    <bpmn:serviceTask id="Task_AltA" name="Assign reviewer">
+      <bpmn:incoming>Flow_split_altA</bpmn:incoming>
+      <bpmn:outgoing>Flow_altA_altB</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_altA_altB" sourceRef="Task_AltA" targetRef="Task_AltB" />
+    <bpmn:serviceTask id="Task_AltB" name="Review manually">
+      <bpmn:incoming>Flow_altA_altB</bpmn:incoming>
+      <bpmn:outgoing>Flow_altB_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_altB_join" sourceRef="Task_AltB" targetRef="G_Join" />
+    <bpmn:sequenceFlow id="Flow_split_altC" name="escalated" sourceRef="G_Split" targetRef="Task_AltC" />
+    <bpmn:serviceTask id="Task_AltC" name="Escalate to lead">
+      <bpmn:incoming>Flow_split_altC</bpmn:incoming>
+      <bpmn:outgoing>Flow_altC_check</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_altC_check" sourceRef="Task_AltC" targetRef="G_Check" />
+    <bpmn:exclusiveGateway id="G_Check" name="Lead agreed?">
+      <bpmn:incoming>Flow_altC_check</bpmn:incoming>
+      <bpmn:outgoing>Flow_check_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_check_join" name="yes" sourceRef="G_Check" targetRef="G_Join" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_RejoinRightThenUp">
+    <bpmndi:BPMNPlane id="BPMNPlane_RejoinRightThenUp" bpmnElement="Process_RejoinRightThenUp" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
