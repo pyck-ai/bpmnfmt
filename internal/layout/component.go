@@ -125,6 +125,34 @@ func (cl *compLayout) spacingWidth(id string) float64 {
 // shape returns the node rect; only valid after materializeY.
 func (cl *compLayout) shape(id string) Rect { return cl.res.Shapes[id] }
 
+// isActivity reports whether a node is drawn as a rectangle: a task or an
+// expanded sub-process, i.e. anything with a flat right border to leave from.
+func (cl *compLayout) isActivity(id string) bool {
+	n := cl.node(id)
+	return n != nil && !n.Kind.IsEvent() && !n.Kind.IsGateway()
+}
+
+// rejoinGap reports the horizontal clearance a chain needs between its tail
+// and its merge target, and whether the tail is de-aligned at all.
+//
+// Rule L1: a tail that is an ACTIVITY with exactly one forward outgoing flow
+// leaves through its right border and turns up in the target's column, so it
+// must stop at least one column short of the target. A gateway or event tail
+// keeps the aligned straight vertical out of its corner or point, and a tail
+// with more than one forward flow keeps the vertical out of its top — its
+// right side is taken by the row continuation.
+func (cl *compLayout) rejoinGap(ch *chain) (float64, bool) {
+	tail := ch.nodes[len(ch.nodes)-1]
+	gap := (cl.spacingWidth(tail)+cl.spacingWidth(ch.mergeNode))/2 + GapX
+	if ch.isRoot {
+		return gap, true // secondary-start inflow: same shape
+	}
+	if !cl.isActivity(tail) || len(cl.g.ForwardOut(tail)) != 1 {
+		return 0, false
+	}
+	return gap, true
+}
+
 // pastGatewayCluster advances an alignment successor along its chain past a
 // run of consecutive gateways, stopping at the first non-gateway node (or at
 // the chain's end). A gateway carries no branch of its own to align to, so a
@@ -220,10 +248,11 @@ func (cl *compLayout) assignX() error {
 		}
 		if ch.mergeNode != "" {
 			last := ch.nodes[len(ch.nodes)-1]
-			if ch.isRoot {
-				// Fan-in from the left: stay left of the merge target.
-				cons[ch.mergeNode] = append(cons[ch.mergeNode],
-					constr{last, (cl.spacingWidth(last)+cl.spacingWidth(ch.mergeNode))/2 + GapX})
+			if gap, deAligned := cl.rejoinGap(ch); deAligned {
+				// Rule L1: an activity tail leaves to the RIGHT and turns up
+				// in the target's column, so it needs a column of clearance
+				// to turn in. (Root chains have always fanned in this way.)
+				cons[ch.mergeNode] = append(cons[ch.mergeNode], constr{last, gap})
 			} else {
 				// Vertical rejoin: merge target at or right of the chain tail.
 				cons[ch.mergeNode] = append(cons[ch.mergeNode], constr{last, 0})
@@ -329,7 +358,8 @@ func (cl *compLayout) componentFlows() []*model.SequenceFlow {
 
 // alignChains shifts whole branch subtrees right so that chain tails sit
 // exactly under their merge targets (straight vertical rejoins) whenever the
-// merge target ended up further right than the tail.
+// merge target ended up further right than the tail. A tail that rule L1
+// de-aligns is shifted to its required gap instead, never under the target.
 func (cl *compLayout) alignChains() {
 	children := map[int][]int{}
 	for _, ch := range cl.chains {
@@ -354,7 +384,11 @@ func (cl *compLayout) alignChains() {
 			continue
 		}
 		tail := ch.nodes[len(ch.nodes)-1]
-		delta := cl.x[ch.mergeNode] - cl.x[tail]
+		target := cl.x[ch.mergeNode]
+		if gap, deAligned := cl.rejoinGap(ch); deAligned {
+			target -= gap
+		}
+		delta := target - cl.x[tail]
 		if delta <= 0.5 {
 			continue
 		}
@@ -439,10 +473,13 @@ func (cl *compLayout) assignRows() {
 	// back over it.
 	dir := map[int]int{}
 
-	// Placement order: parents before children, and the branches of one
-	// split node longest-first. The sort is stable and only reorders chains
-	// sharing a parentNode, so branches of different split nodes keep their
-	// declaration order and cross-gateway tier sharing is unaffected.
+	// Placement order: parents before children, the branches of one split
+	// node longest-first, and — across split nodes on one row — the
+	// rightmost split first. A split's entry trunk drops in its own column
+	// and every branch head of a cluster shares one column (rule L4), so a
+	// trunk starting further left has to cross every row between its split
+	// and its own; taking the shallowest rows for the rightmost splits keeps
+	// each trunk above the entries it would otherwise cut through.
 	children := map[int][]int{}
 	order := make([]int, 0, len(cl.chains))
 	queue := make([]int, 0, len(cl.chains))
@@ -462,7 +499,12 @@ func (cl *compLayout) assignRows() {
 		sort.SliceStable(kids, func(i, j int) bool {
 			a, b := cl.chains[kids[i]], cl.chains[kids[j]]
 			if a.parentNode != b.parentNode {
-				return false
+				// Both split nodes sit on this same parent chain, so they
+				// share a row; the rightmost one takes the shallower tier.
+				if a.parentNode == "" || b.parentNode == "" {
+					return false
+				}
+				return cl.x[a.parentNode] > cl.x[b.parentNode]
 			}
 			if a.weight != b.weight {
 				return a.weight > b.weight
