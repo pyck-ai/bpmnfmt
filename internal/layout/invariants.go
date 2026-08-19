@@ -14,6 +14,8 @@ import (
 //
 //   - no two shapes overlap (nodes, annotations),
 //   - external labels do not overlap shapes,
+//   - no two edge labels overlap,
+//   - edge labels do not overlap shapes,
 //   - no edge segment passes through a foreign shape,
 //   - forward sequence flows never move leftwards (center to center),
 //   - spine nodes share one centerline with ascending x.
@@ -70,6 +72,29 @@ func Validate(p *model.Process, g *graph.Graph, res *Result) []string {
 			}
 			if l.Overlaps(res.Shapes[sid].Grow(-1)) {
 				out = append(out, fmt.Sprintf("label of %s overlaps shape %s", lid, sid))
+			}
+		}
+	}
+
+	// Edge-label overlaps.
+	edgeLabelIDs := sortedKeys(res.EdgeLabels)
+	for i, a := range edgeLabelIDs {
+		for _, b := range edgeLabelIDs[i+1:] {
+			if res.EdgeLabels[a].Overlaps(res.EdgeLabels[b]) {
+				out = append(out, fmt.Sprintf("edge labels overlap: %s and %s", a, b))
+			}
+		}
+	}
+
+	// Edge-label/shape overlaps (skip the label's own container).
+	for _, lid := range edgeLabelIDs {
+		l := res.EdgeLabels[lid]
+		for _, sid := range ids {
+			if ownerOf[lid] == sid {
+				continue
+			}
+			if l.Overlaps(res.Shapes[sid].Grow(-1)) {
+				out = append(out, fmt.Sprintf("edge label of %s overlaps shape %s", lid, sid))
 			}
 		}
 	}
