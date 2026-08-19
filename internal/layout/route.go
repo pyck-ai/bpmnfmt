@@ -50,6 +50,9 @@ type laneSeg struct {
 	edge   string
 	x1, x2 float64
 	lane   int
+	// sky marks a run arching OVER its row rather than dipping under it
+	// (rule M3). Sky and dip runs share a gap but never contend for lanes.
+	sky bool
 }
 
 const marginSentinel = -100.0
@@ -84,6 +87,8 @@ const (
 	pkBackBottom                 // exit bottom, way-back line below the lower row, corridor up, enter bottom
 	pkBackMargin                 // around the outside via the margin corridor
 	pkHLeft                      // straight horizontal along a row, right to left (retrograde chain)
+	pkOverRow                    // exit top, lane above own row, enter target top (sky skip arc)
+	pkBackTop                    // exit top, way-back line above the row, enter target top (sky loop)
 )
 
 type edgePlan struct {
@@ -100,9 +105,113 @@ type edgePlan struct {
 	backEntry bool // pkBackMargin: enter the target's bottom (way-back edges)
 }
 
+// detourGroup is a set of same-row detours sharing one target: they leave
+// their row, travel, and come back into the same node, so they move as a
+// unit when the router decides whether to arch over the row or dip under
+// it. Grouping by target also gives later rules a per-target view of the
+// source rows involved.
+type detourGroup struct {
+	dst    string
+	flows  []string
+	rows   []int // source row per flow, same order
+	row    int   // the shared row
+	lo, hi float64
+	risers [2]float64
+}
+
+// sameRowDetourGroups collects the flows whose source and target sit on one
+// row and which therefore have to leave the row and come back: a forward
+// skip arc over intervening nodes, or a way-back edge between two nodes of
+// one row. They are grouped by target and returned in a deterministic order.
+func (cl *compLayout) sameRowDetourGroups() []*detourGroup {
+	byKey := map[string]*detourGroup{}
+	var order []*detourGroup
+	for _, fl := range cl.componentFlows() {
+		src, dst := fl.SourceRef, fl.TargetRef
+		sr, dr := cl.rowOf[src], cl.rowOf[dst]
+		if sr != dr {
+			continue
+		}
+		switch classify(cl.g, cl.chains, cl.chainOf, fl) {
+		case fcExit, fcCross:
+			if !cl.nodesBetween(sr, cl.right(src), cl.left(dst)) {
+				continue // runs straight along the row; no detour needed
+			}
+		case fcBack:
+			if cl.retroChain(src) {
+				continue // rule L3 already walked this one back
+			}
+		default:
+			continue
+		}
+		sx, dx := cl.x[src], cl.x[dst]
+		g := byKey[dst]
+		if g == nil {
+			g = &detourGroup{dst: dst, row: sr,
+				lo: math.Min(sx, dx), hi: math.Max(sx, dx),
+				risers: [2]float64{sx, dx}}
+			byKey[dst] = g
+			order = append(order, g)
+		}
+		g.lo = math.Min(g.lo, math.Min(sx, dx))
+		g.hi = math.Max(g.hi, math.Max(sx, dx))
+		g.flows = append(g.flows, fl.ID)
+		g.rows = append(g.rows, sr)
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		if order[i].lo != order[j].lo {
+			return order[i].lo < order[j].lo
+		}
+		if order[i].hi != order[j].hi {
+			return order[i].hi > order[j].hi
+		}
+		return order[i].flows[0] < order[j].flows[0]
+	})
+	return order
+}
+
+// planSky decides, before any route is planned, which same-row detours arch
+// OVER their row instead of dipping under it (rule M3). Below is the
+// fallback, not a deprecated shape: an edge whose sky is occupied keeps it.
+//
+// Two spans that overlap without either containing the other cost exactly
+// one crossing if they share a band, whichever order they are stacked in.
+// So a group is skied only when no already-skied group partially overlaps
+// it; the other one stays below and the crossing disappears.
+func (cl *compLayout) planSky() {
+	partial := func(a, b *detourGroup) bool {
+		if a.hi <= b.lo || b.hi <= a.lo {
+			return false // disjoint
+		}
+		contains := (a.lo <= b.lo && b.hi <= a.hi) || (b.lo <= a.lo && a.hi <= b.hi)
+		return !contains
+	}
+	var skied []*detourGroup
+	for _, g := range cl.sameRowDetourGroups() {
+		if !cl.freeSky(g.lo, g.hi, g.row, g.risers[0], g.risers[1]) {
+			continue
+		}
+		clash := false
+		for _, o := range skied {
+			if partial(g, o) {
+				clash = true
+				break
+			}
+		}
+		if clash {
+			continue
+		}
+		skied = append(skied, g)
+		for _, id := range g.flows {
+			cl.skyEdge[id] = true
+		}
+	}
+}
+
 // planRoutes builds a symbolic routing plan per sequence flow.
 func (cl *compLayout) planRoutes() error {
 	cl.gapLanes = make([][]*laneSeg, len(cl.rows)+1)
+	cl.planSky()
 	for _, fl := range cl.componentFlows() {
 		pl := &edgePlan{id: fl.ID, src: fl.SourceRef, dst: fl.TargetRef}
 		cl.plans = append(cl.plans, pl)
@@ -366,11 +475,17 @@ func (cl *compLayout) undoMargin(pl *edgePlan) {
 // dipping through the gap below the row (the space above rows is reserved
 // for lifted branches).
 func (cl *compLayout) planUnderRow(pl *edgePlan, row int) {
+	side, gap := sBottom, row+1
 	pl.kind = pkUnderRow
-	pl.g1 = row + 1
-	pl.seg1 = cl.lane(row+1, pl.id, cl.x[pl.src], cl.x[pl.dst])
-	pl.exit = cl.dock(pl.id, pl.src, sBottom, cl.x[pl.dst], false, 0)
-	pl.entry = cl.dock(pl.id, pl.dst, sBottom, cl.x[pl.src], false, 0)
+	if cl.skyEdge[pl.id] { // rule M3: the sky over this span is free
+		side, gap = sTop, row
+		pl.kind = pkOverRow
+	}
+	pl.g1 = gap
+	pl.seg1 = cl.lane(gap, pl.id, cl.x[pl.src], cl.x[pl.dst])
+	pl.seg1.sky = pl.kind == pkOverRow
+	pl.exit = cl.dock(pl.id, pl.src, side, cl.x[pl.dst], false, 0)
+	pl.entry = cl.dock(pl.id, pl.dst, side, cl.x[pl.src], false, 0)
 }
 
 // planBack: every way-back edge drops from the source's bottom to a
@@ -405,12 +520,19 @@ func (cl *compLayout) planBack(pl *edgePlan, sr, dr int, sx, dx float64) {
 		if cl.corridorClear(x, dr+1, band-1) && cl.corridorClear(sx, sr+1, band-1) {
 			lo, hi := rowBand(sr, dr)
 			cl.useCorridor(x, lo, hi)
+			side := sBottom
 			pl.kind = pkBackBottom
+			if cl.skyEdge[pl.id] { // rule M3: arch over the row instead
+				side = sTop
+				pl.kind = pkBackTop
+				band = sr
+			}
 			pl.corrX = x
 			pl.g1 = band
 			pl.seg1 = cl.lane(band, pl.id, sx, x)
-			pl.exit = cl.dock(pl.id, pl.src, sBottom, x, false, 0)
-			pl.entry = cl.dock(pl.id, pl.dst, sBottom, x, true, x-dx)
+			pl.seg1.sky = pl.kind == pkBackTop
+			pl.exit = cl.dock(pl.id, pl.src, side, x, false, 0)
+			pl.entry = cl.dock(pl.id, pl.dst, side, x, true, x-dx)
 			return
 		}
 	}
@@ -594,7 +716,8 @@ func (cl *compLayout) laneBundles() map[*laneSeg]string {
 // point are the pileup bug, not a bundle, and must stay reportable.
 func (cl *compLayout) mergeBundleDockings() {
 	mergeable := func(k planKind) bool {
-		return k == pkUnderRow || k == pkBackBottom
+		return k == pkUnderRow || k == pkBackBottom ||
+			k == pkOverRow || k == pkBackTop
 	}
 	byKey := map[string][]*edgePlan{}
 	var order []string
@@ -674,38 +797,65 @@ func (cl *compLayout) assignLanes() {
 		for _, g := range groups {
 			sort.SliceStable(g.segs, func(i, j int) bool { return g.segs[i].edge < g.segs[j].edge })
 		}
-		sort.SliceStable(groups, func(i, j int) bool {
-			if groups[i].lo != groups[j].lo {
-				return groups[i].lo < groups[j].lo
-			}
-			if groups[i].hi != groups[j].hi {
-				return groups[i].hi > groups[j].hi
-			}
-			return groups[i].segs[0].edge < groups[j].segs[0].edge
-		})
-		var lanes [][]*laneGroup
-	next:
+		// Dips and arches share a gap but are packed into separate lane
+		// ranges: dips first, then arches. laneY maps a higher lane index
+		// to a smaller y, so mirroring the arch comparator (lo desc, hi
+		// asc) is what makes a CONTAINING arch land further from the row —
+		// arches read as concentric arches, dips as concentric dips.
+		var dips, skies []*laneGroup
 		for _, g := range groups {
-			for li, lane := range lanes {
-				ok := true
-				for _, o := range lane {
-					if g.lo < o.hi+20 && o.lo < g.hi+20 {
-						ok = false
-						break
+			if g.segs[0].sky {
+				skies = append(skies, g)
+				continue
+			}
+			dips = append(dips, g)
+		}
+		sort.SliceStable(dips, func(i, j int) bool {
+			if dips[i].lo != dips[j].lo {
+				return dips[i].lo < dips[j].lo
+			}
+			if dips[i].hi != dips[j].hi {
+				return dips[i].hi > dips[j].hi
+			}
+			return dips[i].segs[0].edge < dips[j].segs[0].edge
+		})
+		sort.SliceStable(skies, func(i, j int) bool {
+			if skies[i].lo != skies[j].lo {
+				return skies[i].lo > skies[j].lo
+			}
+			if skies[i].hi != skies[j].hi {
+				return skies[i].hi < skies[j].hi
+			}
+			return skies[i].segs[0].edge < skies[j].segs[0].edge
+		})
+
+		base := 0
+		for _, batch := range [][]*laneGroup{dips, skies} {
+			var lanes [][]*laneGroup
+		next:
+			for _, g := range batch {
+				for li, lane := range lanes {
+					ok := true
+					for _, o := range lane {
+						if g.lo < o.hi+20 && o.lo < g.hi+20 {
+							ok = false
+							break
+						}
+					}
+					if ok {
+						for _, s := range g.segs {
+							s.lane = base + li
+						}
+						lanes[li] = append(lanes[li], g)
+						continue next
 					}
 				}
-				if ok {
-					for _, s := range g.segs {
-						s.lane = li
-					}
-					lanes[li] = append(lanes[li], g)
-					continue next
+				for _, s := range g.segs {
+					s.lane = base + len(lanes)
 				}
+				lanes = append(lanes, []*laneGroup{g})
 			}
-			for _, s := range g.segs {
-				s.lane = len(lanes)
-			}
-			lanes = append(lanes, []*laneGroup{g})
+			base += len(lanes)
 		}
 	}
 }

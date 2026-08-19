@@ -37,6 +37,7 @@ type compLayout struct {
 	corridors []corridor
 	sides     map[sideKey][]*docking
 	marginUse int
+	skyEdge   map[string]bool // same-row detours arching over their row (M3)
 
 	// Vertical geometry, filled by materializeY.
 	rowCY    []float64
@@ -58,6 +59,7 @@ func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSi
 		rowOf:    map[string]int{},
 		planByID: map[string]*edgePlan{},
 		sides:    map[sideKey][]*docking{},
+		skyEdge:  map[string]bool{},
 		res: &Result{
 			Shapes:     map[string]Rect{},
 			Labels:     map[string]Rect{},
@@ -663,6 +665,43 @@ func (cl *compLayout) assignRows() {
 		lo, hi := cl.chainExtent(ch)
 		cl.rowSpans[ch.row] = append(cl.rowSpans[ch.row], span{lo, hi})
 	}
+}
+
+// freeSky reports whether the band above row R is clear over the horizontal
+// span [lo, hi], so a same-row detour may arch over the row instead of
+// dipping under it (rule M3).
+//
+// Three things can occupy the sky: a chain on a higher row, an annotation
+// band (README R8 reserves the space directly above a node's row for its
+// short notes), and another vertical already owning one of the two riser
+// columns (rules L2/R7).
+func (cl *compLayout) freeSky(lo, hi float64, R int, risers ...float64) bool {
+	lo, hi = lo-Clearance, hi+Clearance
+	for r := 0; r < R; r++ {
+		if r >= len(cl.rowSpans) {
+			break
+		}
+		for _, sp := range cl.rowSpans[r] {
+			if sp.lo < hi && lo < sp.hi {
+				return false
+			}
+		}
+	}
+	for _, ann := range cl.componentAnnotations() {
+		if ann.anchor == "" || ann.prose || cl.rowOf[ann.anchor] > R {
+			continue
+		}
+		ax := cl.x[ann.anchor]
+		if ax-ann.w/2 < hi && lo < ax+ann.w/2 {
+			return false
+		}
+	}
+	for _, x := range risers {
+		if !cl.corridorClear(x, 0, R-1) || !cl.corridorFree(x, 0, R) {
+			return false
+		}
+	}
+	return true
 }
 
 // rowClear reports whether the vertical strip [x-Clearance, x+Clearance]

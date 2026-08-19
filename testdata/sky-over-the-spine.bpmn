@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_SkyOverTheSpine" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_SkyOverTheSpine" name="Sky over the spine" isExecutable="true">
+    <bpmn:documentation>Rule M3 fixture: a flow whose source and target sit on the SAME row has to
+leave the row and come back. It arches ABOVE the row when the sky over the
+spanned columns is free, and dips below it when the sky is occupied.
+
+Both controls live in one file, in two regions that do not overlap:
+
+  G_A  -&gt; G_B   skip arc, nothing above it            -&gt; arches ABOVE
+  G_AC -&gt; G_AD  skip arc nested inside it, also free  -&gt; arches ABOVE, higher
+  G_C  -&gt; G_D   skip arc with a lifted branch above it -&gt; dips BELOW
+
+G_B is a three-way split whose two alternates are terminal, so rule L5
+lifts the shorter one above the spine. Rule L4 aligns its head to the first
+non-gateway after the split, which parks it squarely over the G_C..G_D
+span — that is what blocks the sky there and forces the third arc down.
+Without the lift all three arcs would arch and the fixture would prove
+nothing.
+
+The first two arcs are properly nested and have DIFFERENT targets, so they
+form two groups and take two lanes: the containing arc must sit further
+from the row, so they read as concentric arches rather than a staircase.
+
+Exercises:
+  - the free-sky arcs leave their source's top corner and never dip below
+    the spine,
+  - the blocked arc leaves the bottom and never rises above the spine,
+  - the blocker is really in the sky and really overlaps the blocked span,
+  - the containing arch sits further from the row than the arch nested
+    inside it.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Sky" name="Case opened">
+      <bpmn:outgoing>Flow_start_a</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_a" sourceRef="Start_Sky" targetRef="G_A" />
+    <bpmn:exclusiveGateway id="G_A" name="Triaged?">
+      <bpmn:incoming>Flow_start_a</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_t1</bpmn:outgoing>
+      <bpmn:outgoing>Flow_a_b</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_a_t1" name="no" sourceRef="G_A" targetRef="Task_1" />
+    <bpmn:serviceTask id="Task_1" name="Triage case">
+      <bpmn:incoming>Flow_a_t1</bpmn:incoming>
+      <bpmn:outgoing>Flow_t1_ac</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t1_ac" sourceRef="Task_1" targetRef="G_AC" />
+    <bpmn:exclusiveGateway id="G_AC" name="Complete?">
+      <bpmn:incoming>Flow_t1_ac</bpmn:incoming>
+      <bpmn:outgoing>Flow_ac_t15</bpmn:outgoing>
+      <bpmn:outgoing>Flow_ac_ad</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_ac_t15" name="no" sourceRef="G_AC" targetRef="Task_15" />
+    <bpmn:serviceTask id="Task_15" name="Request details">
+      <bpmn:incoming>Flow_ac_t15</bpmn:incoming>
+      <bpmn:outgoing>Flow_t15_ad</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t15_ad" sourceRef="Task_15" targetRef="G_AD" />
+    <bpmn:exclusiveGateway id="G_AD" name="Details in?">
+      <bpmn:incoming>Flow_t15_ad</bpmn:incoming>
+      <bpmn:incoming>Flow_ac_ad</bpmn:incoming>
+      <bpmn:outgoing>Flow_ad_t16</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_ad_t16" sourceRef="G_AD" targetRef="Task_16" />
+    <bpmn:serviceTask id="Task_16" name="Register case">
+      <bpmn:incoming>Flow_ad_t16</bpmn:incoming>
+      <bpmn:outgoing>Flow_t16_b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t16_b" sourceRef="Task_16" targetRef="G_B" />
+    <bpmn:exclusiveGateway id="G_B" name="Route case">
+      <bpmn:incoming>Flow_t16_b</bpmn:incoming>
+      <bpmn:incoming>Flow_a_b</bpmn:incoming>
+      <bpmn:outgoing>Flow_b_c</bpmn:outgoing>
+      <bpmn:outgoing>Flow_b_l</bpmn:outgoing>
+      <bpmn:outgoing>Flow_b_m</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_b_c" name="standard" sourceRef="G_B" targetRef="G_C" />
+    <bpmn:exclusiveGateway id="G_C" name="Escalate?">
+      <bpmn:incoming>Flow_b_c</bpmn:incoming>
+      <bpmn:outgoing>Flow_c_t3</bpmn:outgoing>
+      <bpmn:outgoing>Flow_c_d</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_c_t3" name="no" sourceRef="G_C" targetRef="Task_3" />
+    <bpmn:serviceTask id="Task_3" name="Settle case">
+      <bpmn:incoming>Flow_c_t3</bpmn:incoming>
+      <bpmn:outgoing>Flow_t3_d</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_t3_d" sourceRef="Task_3" targetRef="G_D" />
+    <bpmn:exclusiveGateway id="G_D" name="Closed?">
+      <bpmn:incoming>Flow_t3_d</bpmn:incoming>
+      <bpmn:incoming>Flow_c_d</bpmn:incoming>
+      <bpmn:outgoing>Flow_d_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_d_end" sourceRef="G_D" targetRef="End_Sky" />
+    <bpmn:endEvent id="End_Sky" name="Case closed">
+      <bpmn:incoming>Flow_d_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_b_l" name="review" sourceRef="G_B" targetRef="Task_L" />
+    <bpmn:serviceTask id="Task_L" name="Inspect case">
+      <bpmn:incoming>Flow_b_l</bpmn:incoming>
+      <bpmn:outgoing>Flow_l_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_l_end" sourceRef="Task_L" targetRef="End_L" />
+    <bpmn:endEvent id="End_L" name="Sent to review">
+      <bpmn:incoming>Flow_l_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_b_m" name="reject" sourceRef="G_B" targetRef="Task_M" />
+    <bpmn:serviceTask id="Task_M" name="Draft rejection">
+      <bpmn:incoming>Flow_b_m</bpmn:incoming>
+      <bpmn:outgoing>Flow_m_m2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_m_m2" sourceRef="Task_M" targetRef="Task_M2" />
+    <bpmn:serviceTask id="Task_M2" name="Send rejection">
+      <bpmn:incoming>Flow_m_m2</bpmn:incoming>
+      <bpmn:outgoing>Flow_m2_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_m2_end" sourceRef="Task_M2" targetRef="End_M" />
+    <bpmn:endEvent id="End_M" name="Case rejected">
+      <bpmn:incoming>Flow_m2_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_a_b" name="yes" sourceRef="G_A" targetRef="G_B" />
+    <bpmn:sequenceFlow id="Flow_ac_ad" name="yes" sourceRef="G_AC" targetRef="G_AD" />
+    <bpmn:sequenceFlow id="Flow_c_d" name="yes" sourceRef="G_C" targetRef="G_D" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SkyOverTheSpine">
+    <bpmndi:BPMNPlane id="BPMNPlane_SkyOverTheSpine" bpmnElement="Process_SkyOverTheSpine" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
