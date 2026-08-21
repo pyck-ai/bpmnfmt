@@ -191,7 +191,7 @@ func (cl *compLayout) planSky() {
 	}
 	var skied []*detourGroup
 	for _, g := range cl.sameRowDetourGroups() {
-		if !cl.freeSky(g.lo, g.hi, g.row, g.risers[0], g.risers[1]) {
+		if !cl.freeSky(g.lo, g.hi, g.row, g.dst, g.risers[0], g.risers[1]) {
 			continue
 		}
 		clash := false

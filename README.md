@@ -150,6 +150,18 @@ spine, and zero forbidden edge crossings.
     from the gateway's top into the head's right face), the body marches
     leftward, and the return leaves the tail's left face and drops once
     into the target's top.
+12. **Two returns to one node share the sky.** A lifted loop-return does
+    not evict another way-back edge heading for the same target. Rule 11
+    gave it the sky because it is a return; the second one is a return
+    too, and sending it below would only make it shadow whatever bundle
+    already arrives there — it would leave a face that is already carrying
+    an arrow, run a slot beside it and read as a doubled line. Both fly
+    instead: the lane sits in the gap directly above the row and the
+    risers reach no further, so they pass underneath the lifted body, and
+    because both land on the same face rule 9 merges them into one arrow.
+    A chain overhead that is not returning to this target still keeps the
+    detour below (rule 6), and so does a vertical already owning a riser's
+    column.
 
 ## Lint rules
 

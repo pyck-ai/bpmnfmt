@@ -754,24 +754,48 @@ func (cl *compLayout) assignRows() {
 // short-annotation band does NOT block it: sky lanes stack ABOVE the band
 // (see materializeY), and an annotation sitting in a riser's column dodges
 // sideways when it is placed.
-func (cl *compLayout) freeSky(lo, hi float64, R int, risers ...float64) bool {
+//
+// A lifted loop-return heading for this detour's own target is no blocker
+// either (rule 12). It is a return like this one, and rule 11 gave it the
+// sky for that reason; evicting the second return to the corridor below
+// would only make it shadow whatever bundle already arrives there. Both
+// end on the same face, so rule 9 merges them into one arrow anyway: the
+// two share the sky instead of fighting over it. The lane they fly in sits
+// in the gap directly above row R and their risers reach no further, so
+// they pass underneath the lifted body rather than through it.
+func (cl *compLayout) freeSky(lo, hi float64, R int, dst string, risers ...float64) bool {
 	lo, hi = lo-Clearance, hi+Clearance
-	for r := 0; r < R; r++ {
-		if r >= len(cl.rowSpans) {
-			break
+	for _, ch := range cl.chains {
+		if ch.row >= R || cl.returnsTo(ch, dst) {
+			continue
 		}
-		for _, sp := range cl.rowSpans[r] {
-			if sp.lo < hi && lo < sp.hi {
-				return false
-			}
+		if clo, chi := cl.chainExtent(ch); clo < hi && lo < chi {
+			return false
 		}
 	}
 	for _, x := range risers {
-		if !cl.corridorClear(x, 0, R-1) || !cl.corridorFree(x, 0, R) {
+		if !cl.corridorFree(x, R, R) {
 			return false
 		}
 	}
 	return true
+}
+
+// returnsTo reports whether ch is a lifted loop-return whose way-back edge
+// ends at dst — a return bound for the same node as the detour asking about
+// the sky (rule 12).
+func (cl *compLayout) returnsTo(ch *chain, dst string) bool {
+	if !ch.loopReturn || dst == "" {
+		return false
+	}
+	for _, id := range ch.nodes {
+		for _, fl := range cl.g.Out[id] {
+			if cl.g.Back[fl.ID] && fl.TargetRef == dst {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // rowClear reports whether the vertical strip [x-Clearance, x+Clearance]

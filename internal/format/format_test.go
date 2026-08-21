@@ -1460,30 +1460,32 @@ func TestTourExecutionAcceptance(t *testing.T) {
 		t.Errorf("Confirmed? not aligned under Scan box (dx=%.0f)", d)
 	}
 
-	// The pick loop is a same-row way-back edge. Its sky is occupied: the
-	// lifted loop-return body (rule N3b) sits one column left of its
-	// split, inside the loop's span. So the loop keeps rule 6's fallback —
-	// it leaves the gateway's bottom corner, travels back on a line below
-	// the rows it passes under and rises into its target's bottom.
+	// The pick loop is a same-row way-back edge, and the lifted
+	// loop-return body's exit (rule N3b) is another one heading for the
+	// same target. Rule 12 lets the second return share the sky instead of
+	// evicting it to the corridor below, where it would only shadow what
+	// already arrives there: the loop leaves the gateway's top corner,
+	// flies back above the rows it passes over and sinks into its target's
+	// top.
 	loop := lay.Edges["Flow_0tcw3fm"]
 	if len(loop) < 4 {
 		t.Fatalf("pick loop should be a way-back route, got %v", loop)
 	}
 	src := lay.Shapes["Gateway_08wsh14"]
 	tgt := lay.Shapes["Activity_1b1t68m"]
-	rowBottom := math.Max(src.Bottom(), tgt.Bottom())
+	rowTop := math.Min(src.Y, tgt.Y)
 
-	if first := loop[0]; first.X != src.CX() || first.Y != src.Bottom() {
-		t.Errorf("pick loop must leave the gateway's bottom corner (got %v, want %.0f,%.0f)",
-			first, src.CX(), src.Bottom())
+	if first := loop[0]; first.X != src.CX() || first.Y != src.Y {
+		t.Errorf("pick loop must leave the gateway's top corner (got %v, want %.0f,%.0f)",
+			first, src.CX(), src.Y)
 	}
 	for _, pt := range loop {
-		if pt.Y < spineY-layout.RowH/2 {
-			t.Errorf("pick loop must stay below the spine's top (y=%.0f)", pt.Y)
+		if pt.Y >= spineY {
+			t.Errorf("pick loop must stay above the spine (y=%.0f, spine=%.0f)", pt.Y, spineY)
 		}
 	}
 	// The way-back line is the loop's longest horizontal run: it carries
-	// the edge back across the diagram and must lie below the rows rather
+	// the edge back across the diagram and must lie above the rows rather
 	// than beside them. (The short jog off the diamond's corner is not it.)
 	var line [2]layout.Point
 	widest := 0.0
@@ -1498,22 +1500,24 @@ func TestTourExecutionAcceptance(t *testing.T) {
 	if line[1].X >= line[0].X {
 		t.Errorf("the way-back line must run right to left (%v -> %v)", line[0], line[1])
 	}
-	if line[0].Y <= rowBottom {
-		t.Errorf("the way-back line should run below its rows, not beside them (y=%.0f, rows end at %.0f)",
-			line[0].Y, rowBottom)
+	if line[0].Y >= rowTop {
+		t.Errorf("the way-back line should fly above its rows, not beside them (y=%.0f, rows start at %.0f)",
+			line[0].Y, rowTop)
 	}
-	// It ends by rising straight into the target's bottom.
+	// It ends by sinking straight into the target's top.
 	last, prev := loop[len(loop)-1], loop[len(loop)-2]
-	if last.X != tgt.CX() || last.Y != tgt.Bottom() {
-		t.Errorf("pick loop should enter the target's bottom (got %v, want %.0f,%.0f)",
-			last, tgt.CX(), tgt.Bottom())
+	if last.X != tgt.CX() || last.Y != tgt.Y {
+		t.Errorf("pick loop should enter the target's top (got %v, want %.0f,%.0f)",
+			last, tgt.CX(), tgt.Y)
 	}
-	if prev.X != last.X || prev.Y <= last.Y {
-		t.Errorf("pick loop should rise into its target (%v -> %v)", prev, last)
+	if prev.X != last.X || prev.Y >= last.Y {
+		t.Errorf("pick loop should sink into its target (%v -> %v)", prev, last)
 	}
 
-	// The lifted body's return takes the sky instead: out of the tail's
-	// left face, back along its own row, one drop into the target's top.
+	// The lifted body's return takes the same sky: out of the tail's left
+	// face, back along its own row, one drop into the target's top — onto
+	// the very point the pick loop ends on, so the two read as one arrow
+	// (rule 9) rather than two lines landing side by side.
 	ret := lay.Edges["Flow_insert_to_src"]
 	if len(ret) != 3 {
 		t.Fatalf("Flow_insert_to_src should be a 3-point left-then-down elbow, got %v", ret)
@@ -1526,6 +1530,9 @@ func TestTourExecutionAcceptance(t *testing.T) {
 	if last := ret[2]; last.X != tgt.CX() || last.Y != tgt.Y {
 		t.Errorf("Flow_insert_to_src must sink into the target's top (got %v, want %.0f,%.0f)",
 			last, tgt.CX(), tgt.Y)
+	}
+	if ret[2] != loop[len(loop)-1] {
+		t.Errorf("both returns should end on one arrow (%v vs %v)", ret[2], loop[len(loop)-1])
 	}
 
 	// Rule L2: the shortage rejoin owns one column for the rows it crosses
