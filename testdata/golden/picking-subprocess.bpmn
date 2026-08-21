@@ -121,175 +121,173 @@
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_14qfm31">
       <bpmndi:BPMNShape id="Event_12a2xii_di" bpmnElement="Event_12a2xii">
-        <dc:Bounds x="60" y="213" width="36" height="36" />
+        <dc:Bounds x="60" y="210" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="50" y="256" width="56" height="45" />
+          <dc:Bounds x="50" y="253" width="56" height="45" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_GetCollectionData_di" bpmnElement="Activity_GetCollectionData">
-        <dc:Bounds x="188" y="191" width="100" height="80" />
+        <dc:Bounds x="188" y="188" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_SetAssignee_di" bpmnElement="Activity_SetAssignee">
-        <dc:Bounds x="348" y="191" width="100" height="80" />
+        <dc:Bounds x="348" y="188" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="SubProcess_PickItems_di" bpmnElement="SubProcess_PickItems" isExpanded="true">
-        <dc:Bounds x="659" y="50" width="1399" height="361" />
+        <dc:Bounds x="659" y="50" width="1399" height="356" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_InnerStart_di" bpmnElement="Event_InnerStart">
-        <dc:Bounds x="694" y="151" width="36" height="36" />
+        <dc:Bounds x="694" y="306" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="scan-picking-tray-id_di" bpmnElement="scan-picking-tray-id">
-        <dc:Bounds x="822" y="129" width="100" height="80" />
+        <dc:Bounds x="822" y="284" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="scan-product-id_di" bpmnElement="scan-product-id">
-        <dc:Bounds x="982" y="129" width="100" height="80" />
+        <dc:Bounds x="982" y="284" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="best-before-ok_di" bpmnElement="best-before-ok">
-        <dc:Bounds x="1142" y="129" width="100" height="80" />
+        <dc:Bounds x="1142" y="284" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_1rng1ve_di" bpmnElement="Gateway_1rng1ve" isMarkerVisible="true">
-        <dc:Bounds x="1327" y="144" width="50" height="50" />
+        <dc:Bounds x="1327" y="299" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1310" y="122" width="84" height="15" />
+          <dc:Bounds x="1310" y="356" width="84" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="info-expired_di" bpmnElement="info-expired">
-        <dc:Bounds x="1462" y="278" width="100" height="80" />
+        <dc:Bounds x="1142" y="129" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="confirm-pick_di" bpmnElement="confirm-pick">
-        <dc:Bounds x="1462" y="129" width="100" height="80" />
+        <dc:Bounds x="1462" y="284" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_18ky25r_di" bpmnElement="Activity_18ky25r">
-        <dc:Bounds x="1622" y="129" width="100" height="80" />
+        <dc:Bounds x="1622" y="284" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_DispatchFromOutbound_di" bpmnElement="Activity_DispatchFromOutbound">
-        <dc:Bounds x="1782" y="129" width="100" height="80" />
+        <dc:Bounds x="1782" y="284" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_InnerEnd_di" bpmnElement="Event_InnerEnd">
-        <dc:Bounds x="1974" y="151" width="36" height="36" />
+        <dc:Bounds x="1974" y="306" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1961" y="194" width="61" height="15" />
+          <dc:Bounds x="1961" y="349" width="61" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_ScanPickingTrayID_di" bpmnElement="TextAnnotation_ScanPickingTrayID">
-        <dc:Bounds x="802" y="90" width="139" height="25" />
+        <dc:Bounds x="802" y="245" width="139" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_ScanProductID_di" bpmnElement="TextAnnotation_ScanProductID">
-        <dc:Bounds x="973" y="90" width="117" height="25" />
+        <dc:Bounds x="973" y="245" width="117" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_BestBeforeOk_di" bpmnElement="TextAnnotation_BestBeforeOk">
-        <dc:Bounds x="1136" y="90" width="111" height="25" />
+        <dc:Bounds x="1197" y="245" width="111" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_InfoExpired_di" bpmnElement="TextAnnotation_InfoExpired">
-        <dc:Bounds x="1463" y="239" width="97" height="25" />
+        <dc:Bounds x="1143" y="90" width="97" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_ConfirmPick_di" bpmnElement="TextAnnotation_ConfirmPick">
-        <dc:Bounds x="1461" y="90" width="101" height="25" />
+        <dc:Bounds x="1461" y="245" width="101" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_14sxx1g_di" bpmnElement="Event_14sxx1g">
-        <dc:Bounds x="2140" y="213" width="36" height="36" />
+        <dc:Bounds x="2140" y="210" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="2134" y="256" width="49" height="30" />
+          <dc:Bounds x="2134" y="253" width="49" height="30" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_GetCollectionData_di" bpmnElement="TextAnnotation_GetCollectionData">
-        <dc:Bounds x="171" y="152" width="134" height="25" />
+        <dc:Bounds x="171" y="149" width="134" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="TextAnnotation_SetAssignee_di" bpmnElement="TextAnnotation_SetAssignee">
-        <dc:Bounds x="346" y="152" width="104" height="25" />
+        <dc:Bounds x="346" y="149" width="104" height="25" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_start_to_getdata_di" bpmnElement="Flow_start_to_getdata">
-        <di:waypoint x="96" y="231" />
-        <di:waypoint x="188" y="231" />
+        <di:waypoint x="96" y="228" />
+        <di:waypoint x="188" y="228" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_getdata_to_assignee_di" bpmnElement="Flow_getdata_to_assignee">
-        <di:waypoint x="288" y="231" />
-        <di:waypoint x="348" y="231" />
+        <di:waypoint x="288" y="228" />
+        <di:waypoint x="348" y="228" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_assignee_to_subprocess_di" bpmnElement="Flow_assignee_to_subprocess">
-        <di:waypoint x="448" y="231" />
-        <di:waypoint x="659" y="231" />
+        <di:waypoint x="448" y="228" />
+        <di:waypoint x="659" y="228" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_subprocess_to_end_di" bpmnElement="Flow_subprocess_to_end">
-        <di:waypoint x="2057" y="231" />
-        <di:waypoint x="2140" y="231" />
+        <di:waypoint x="2057" y="228" />
+        <di:waypoint x="2140" y="228" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_GetCollectionData_di" bpmnElement="Association_GetCollectionData">
-        <di:waypoint x="238" y="191" />
-        <di:waypoint x="238" y="177" />
+        <di:waypoint x="238" y="188" />
+        <di:waypoint x="238" y="174" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_SetAssignee_di" bpmnElement="Association_SetAssignee">
-        <di:waypoint x="398" y="191" />
-        <di:waypoint x="398" y="177" />
+        <di:waypoint x="398" y="188" />
+        <di:waypoint x="398" y="174" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_inner_start_to_scantray_di" bpmnElement="Flow_inner_start_to_scantray">
-        <di:waypoint x="730" y="169" />
-        <di:waypoint x="822" y="169" />
+        <di:waypoint x="730" y="324" />
+        <di:waypoint x="822" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_scantray_to_scanproduct_di" bpmnElement="Flow_scantray_to_scanproduct">
-        <di:waypoint x="922" y="169" />
-        <di:waypoint x="982" y="169" />
+        <di:waypoint x="922" y="324" />
+        <di:waypoint x="982" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_scanproduct_to_bestbefore_di" bpmnElement="Flow_scanproduct_to_bestbefore">
-        <di:waypoint x="1082" y="169" />
-        <di:waypoint x="1142" y="169" />
+        <di:waypoint x="1082" y="324" />
+        <di:waypoint x="1142" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_bestbefore_to_gateway_di" bpmnElement="Flow_bestbefore_to_gateway">
-        <di:waypoint x="1242" y="169" />
-        <di:waypoint x="1327" y="169" />
+        <di:waypoint x="1242" y="324" />
+        <di:waypoint x="1327" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_gateway_no_di" bpmnElement="Flow_gateway_no">
-        <di:waypoint x="1352" y="194" />
-        <di:waypoint x="1352" y="318" />
-        <di:waypoint x="1462" y="318" />
+        <di:waypoint x="1352" y="299" />
+        <di:waypoint x="1352" y="169" />
+        <di:waypoint x="1242" y="169" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1360" y="199" width="13" height="15" />
+          <dc:Bounds x="1360" y="279" width="13" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_info_to_bestbefore_di" bpmnElement="Flow_info_to_bestbefore">
-        <di:waypoint x="1512" y="358" />
-        <di:waypoint x="1512" y="376" />
-        <di:waypoint x="1192" y="376" />
         <di:waypoint x="1192" y="209" />
+        <di:waypoint x="1192" y="284" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_gateway_yes_di" bpmnElement="Flow_gateway_yes">
-        <di:waypoint x="1377" y="169" />
-        <di:waypoint x="1462" y="169" />
+        <di:waypoint x="1377" y="324" />
+        <di:waypoint x="1462" y="324" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1385" y="149" width="19" height="15" />
+          <dc:Bounds x="1385" y="304" width="19" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_confirm_to_reduce_di" bpmnElement="Flow_confirm_to_reduce">
-        <di:waypoint x="1562" y="169" />
-        <di:waypoint x="1622" y="169" />
+        <di:waypoint x="1562" y="324" />
+        <di:waypoint x="1622" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_reduce_to_dispatch_di" bpmnElement="Flow_reduce_to_dispatch">
-        <di:waypoint x="1722" y="169" />
-        <di:waypoint x="1782" y="169" />
+        <di:waypoint x="1722" y="324" />
+        <di:waypoint x="1782" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_dispatch_to_inner_end_di" bpmnElement="Flow_dispatch_to_inner_end">
-        <di:waypoint x="1882" y="169" />
-        <di:waypoint x="1974" y="169" />
+        <di:waypoint x="1882" y="324" />
+        <di:waypoint x="1974" y="324" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_ScanPickingTrayID_di" bpmnElement="Association_ScanPickingTrayID">
-        <di:waypoint x="872" y="129" />
-        <di:waypoint x="872" y="115" />
+        <di:waypoint x="872" y="284" />
+        <di:waypoint x="872" y="270" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_ScanProductID_di" bpmnElement="Association_ScanProductID">
-        <di:waypoint x="1032" y="129" />
-        <di:waypoint x="1032" y="115" />
+        <di:waypoint x="1032" y="284" />
+        <di:waypoint x="1032" y="270" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_BestBeforeOk_di" bpmnElement="Association_BestBeforeOk">
+        <di:waypoint x="1228" y="284" />
+        <di:waypoint x="1241" y="270" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_InfoExpired_di" bpmnElement="Association_InfoExpired">
         <di:waypoint x="1192" y="129" />
         <di:waypoint x="1192" y="115" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Association_InfoExpired_di" bpmnElement="Association_InfoExpired">
-        <di:waypoint x="1512" y="278" />
-        <di:waypoint x="1512" y="264" />
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Association_ConfirmPick_di" bpmnElement="Association_ConfirmPick">
-        <di:waypoint x="1512" y="129" />
-        <di:waypoint x="1512" y="115" />
+        <di:waypoint x="1512" y="284" />
+        <di:waypoint x="1512" y="270" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

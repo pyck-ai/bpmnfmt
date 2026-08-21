@@ -1,23 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_BackEdgeBelow" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="Process_BackEdgeBelow" name="Back edge below" isExecutable="true">
-    <bpmn:documentation>Rule E fixture: a back edge exits its source's BOTTOM, drops to a dedicated
-line in the gap below the LOWER of the two rows, runs backward and rises into
-the target's BOTTOM.
+    <bpmn:documentation>Rule L3/N3 fixture: the rework branch is a single node across a TWO-column
+loop, so L3's exact-fill condition rejects the retrograde walk — and the
+branch is a pure loop-return (its only exit loops back to Enter data, an
+earlier spine node), so rule N3 lifts it above the spine instead of hanging
+it below, returning through the sky into the target's top.
 
 Shape: Start -&gt; Enter data -&gt; Validate -&gt; Gateway_Valid -&gt; Store -&gt; End (happy
-path). The "invalid" branch is a single rework task on the tier below the
-spine; its only outgoing flow loops back to Enter data, an earlier node on
-the spine.
-
-Source and target sit on DIFFERENT rows (rework on row 1, target on row 0),
-so the fixture pins down "below the LOWER of the two rows" rather than the
-degenerate same-row case.
+path). The "invalid" branch is the single rework task whose only outgoing
+flow loops back to Enter data.
 
 Exercises:
-  - the loop's horizontal run lies strictly below the source row's shapes,
-  - the first waypoint is the source's bottom edge,
-  - the last waypoint is the target's bottom edge.</bpmn:documentation>
+  - nothing is laid out retrograde (the fill condition held),
+  - the rework task sits above the spine row,
+  - the return leaves the task's bottom, runs between the rows and sinks
+    into the target's top edge.</bpmn:documentation>
     <bpmn:startEvent id="Start_Rework" name="Form opened">
       <bpmn:outgoing>Flow_start_to_enter</bpmn:outgoing>
     </bpmn:startEvent>
@@ -57,71 +55,70 @@ Exercises:
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_BackEdgeBelow">
       <bpmndi:BPMNShape id="Start_Rework_di" bpmnElement="Start_Rework">
-        <dc:Bounds x="68" y="79" width="36" height="36" />
+        <dc:Bounds x="68" y="202" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="50" y="122" width="71" height="15" />
+          <dc:Bounds x="50" y="245" width="71" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_EnterData_di" bpmnElement="Task_EnterData">
-        <dc:Bounds x="196" y="57" width="100" height="80" />
+        <dc:Bounds x="196" y="180" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Validate_di" bpmnElement="Task_Validate">
-        <dc:Bounds x="356" y="57" width="100" height="80" />
+        <dc:Bounds x="356" y="180" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_Valid_di" bpmnElement="Gateway_Valid" isMarkerVisible="true">
-        <dc:Bounds x="541" y="72" width="50" height="50" />
+        <dc:Bounds x="541" y="195" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="549" y="50" width="33" height="15" />
+          <dc:Bounds x="549" y="252" width="33" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Store_di" bpmnElement="Task_Store">
-        <dc:Bounds x="676" y="57" width="100" height="80" />
+        <dc:Bounds x="676" y="180" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="End_Stored_di" bpmnElement="End_Stored">
-        <dc:Bounds x="868" y="79" width="36" height="36" />
+        <dc:Bounds x="868" y="202" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="848" y="122" width="75" height="15" />
+          <dc:Bounds x="848" y="245" width="75" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Correct_di" bpmnElement="Task_Correct">
-        <dc:Bounds x="676" y="187" width="100" height="80" />
+        <dc:Bounds x="356" y="50" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_start_to_enter_di" bpmnElement="Flow_start_to_enter">
-        <di:waypoint x="104" y="97" />
-        <di:waypoint x="196" y="97" />
+        <di:waypoint x="104" y="220" />
+        <di:waypoint x="196" y="220" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_enter_to_validate_di" bpmnElement="Flow_enter_to_validate">
-        <di:waypoint x="296" y="97" />
-        <di:waypoint x="356" y="97" />
+        <di:waypoint x="296" y="220" />
+        <di:waypoint x="356" y="220" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_validate_to_gateway_di" bpmnElement="Flow_validate_to_gateway">
-        <di:waypoint x="456" y="97" />
-        <di:waypoint x="541" y="97" />
+        <di:waypoint x="456" y="220" />
+        <di:waypoint x="541" y="220" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_valid_yes_di" bpmnElement="Flow_valid_yes">
-        <di:waypoint x="591" y="97" />
-        <di:waypoint x="676" y="97" />
+        <di:waypoint x="591" y="220" />
+        <di:waypoint x="676" y="220" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="599" y="77" width="19" height="15" />
+          <dc:Bounds x="599" y="200" width="19" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_valid_no_di" bpmnElement="Flow_valid_no">
-        <di:waypoint x="566" y="122" />
-        <di:waypoint x="566" y="227" />
-        <di:waypoint x="676" y="227" />
+        <di:waypoint x="566" y="195" />
+        <di:waypoint x="566" y="90" />
+        <di:waypoint x="456" y="90" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="574" y="127" width="13" height="15" />
+          <dc:Bounds x="574" y="175" width="13" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_store_to_end_di" bpmnElement="Flow_store_to_end">
-        <di:waypoint x="776" y="97" />
-        <di:waypoint x="868" y="97" />
+        <di:waypoint x="776" y="220" />
+        <di:waypoint x="868" y="220" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_correct_back_di" bpmnElement="Flow_correct_back">
-        <di:waypoint x="726" y="267" />
-        <di:waypoint x="726" y="285" />
-        <di:waypoint x="246" y="285" />
-        <di:waypoint x="246" y="137" />
+        <di:waypoint x="356" y="90" />
+        <di:waypoint x="246" y="90" />
+        <di:waypoint x="246" y="180" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

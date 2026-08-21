@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_LoopReturnLift" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_LoopReturnLift" name="Loop return lift" isExecutable="true">
+    <bpmn:documentation>Rule N3 fixture: a branch whose subtree has NO forward exit — every path
+ends in a way-back edge to a spine node EARLIER on the spine than its split —
+is a loop-return detour. When rule L3's retrograde walk cannot fill the span
+exactly, the branch is LIFTED above the spine instead of hanging below:
+below-spine gaps belong to forward branches and their rejoins; the sky
+belongs to returns.
+
+Shape: Start -&gt; Prepare -&gt; Reserve -&gt; Load -&gt; G_Decide -&gt; Wrap -&gt; End on
+the spine; G_Decide's alternate is the single task Redo whose only exit
+loops back to Prepare, several columns left — one node across a four-column
+span, so the exact fill fails and the lift applies.
+
+Exercises:
+  - Redo sits above the spine row,
+  - the return leaves Redo's bottom, runs through the sky above the spine
+    and sinks into Prepare's top,
+  - no flow is laid out retrograde.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Lift" name="Order placed">
+      <bpmn:outgoing>Flow_start_prepare</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_prepare" sourceRef="Start_Lift" targetRef="Task_Prepare" />
+    <bpmn:userTask id="Task_Prepare" name="Prepare batch">
+      <bpmn:incoming>Flow_start_prepare</bpmn:incoming>
+      <bpmn:incoming>Flow_redo_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_prepare_reserve</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_prepare_reserve" sourceRef="Task_Prepare" targetRef="Task_Reserve" />
+    <bpmn:serviceTask id="Task_Reserve" name="Reserve stock">
+      <bpmn:incoming>Flow_prepare_reserve</bpmn:incoming>
+      <bpmn:outgoing>Flow_reserve_load</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_reserve_load" sourceRef="Task_Reserve" targetRef="Task_Load" />
+    <bpmn:userTask id="Task_Load" name="Load trolley">
+      <bpmn:incoming>Flow_reserve_load</bpmn:incoming>
+      <bpmn:outgoing>Flow_load_decide</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_load_decide" sourceRef="Task_Load" targetRef="G_Decide" />
+    <bpmn:exclusiveGateway id="G_Decide" name="Batch complete?">
+      <bpmn:incoming>Flow_load_decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_decide_wrap</bpmn:outgoing>
+      <bpmn:outgoing>Flow_decide_redo</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_decide_wrap" name="yes" sourceRef="G_Decide" targetRef="Task_Wrap" />
+    <bpmn:userTask id="Task_Wrap" name="Wrap batch">
+      <bpmn:incoming>Flow_decide_wrap</bpmn:incoming>
+      <bpmn:outgoing>Flow_wrap_end</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_wrap_end" sourceRef="Task_Wrap" targetRef="End_Lift" />
+    <bpmn:endEvent id="End_Lift" name="Batch shipped">
+      <bpmn:incoming>Flow_wrap_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_decide_redo" name="no, next round" sourceRef="G_Decide" targetRef="Task_Redo" />
+    <bpmn:serviceTask id="Task_Redo" name="Plan next round">
+      <bpmn:incoming>Flow_decide_redo</bpmn:incoming>
+      <bpmn:outgoing>Flow_redo_back</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_redo_back" sourceRef="Task_Redo" targetRef="Task_Prepare" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_LoopReturnLift">
+    <bpmndi:BPMNPlane id="BPMNPlane_LoopReturnLift" bpmnElement="Process_LoopReturnLift" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

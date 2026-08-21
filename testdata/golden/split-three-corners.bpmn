@@ -99,42 +99,42 @@ Exercises:
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Approve_di" bpmnElement="Task_Approve">
-        <dc:Bounds x="518" y="180" width="100" height="80" />
+        <dc:Bounds x="678" y="180" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="End_Approved_di" bpmnElement="End_Approved">
-        <dc:Bounds x="710" y="202" width="36" height="36" />
+        <dc:Bounds x="870" y="202" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="688" y="245" width="81" height="15" />
+          <dc:Bounds x="848" y="245" width="81" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_ShortNotify_di" bpmnElement="Task_ShortNotify">
-        <dc:Bounds x="518" y="50" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_ShortClose_di" bpmnElement="Task_ShortClose">
         <dc:Bounds x="678" y="50" width="100" height="80" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ShortClose_di" bpmnElement="Task_ShortClose">
+        <dc:Bounds x="838" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="End_Withdrawn_di" bpmnElement="End_Withdrawn">
-        <dc:Bounds x="870" y="72" width="36" height="36" />
+        <dc:Bounds x="1030" y="72" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="846" y="115" width="85" height="15" />
+          <dc:Bounds x="1006" y="115" width="85" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_LongCollect_di" bpmnElement="Task_LongCollect">
-        <dc:Bounds x="518" y="310" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_LongAssess_di" bpmnElement="Task_LongAssess">
         <dc:Bounds x="678" y="310" width="100" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_LongRule_di" bpmnElement="Task_LongRule">
+      <bpmndi:BPMNShape id="Task_LongAssess_di" bpmnElement="Task_LongAssess">
         <dc:Bounds x="838" y="310" width="100" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_LongArchive_di" bpmnElement="Task_LongArchive">
+      <bpmndi:BPMNShape id="Task_LongRule_di" bpmnElement="Task_LongRule">
         <dc:Bounds x="998" y="310" width="100" height="80" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LongArchive_di" bpmnElement="Task_LongArchive">
+        <dc:Bounds x="1158" y="310" width="100" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="End_Disputed_di" bpmnElement="End_Disputed">
-        <dc:Bounds x="1190" y="332" width="36" height="36" />
+        <dc:Bounds x="1350" y="332" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1169" y="375" width="79" height="15" />
+          <dc:Bounds x="1329" y="375" width="79" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_start_to_triage_di" bpmnElement="Flow_start_to_triage">
@@ -147,7 +147,7 @@ Exercises:
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_split_happy_di" bpmnElement="Flow_split_happy">
         <di:waypoint x="433" y="220" />
-        <di:waypoint x="518" y="220" />
+        <di:waypoint x="678" y="220" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="441" y="200" width="50" height="15" />
         </bpmndi:BPMNLabel>
@@ -155,7 +155,7 @@ Exercises:
       <bpmndi:BPMNEdge id="Flow_split_short_di" bpmnElement="Flow_split_short">
         <di:waypoint x="408" y="195" />
         <di:waypoint x="408" y="90" />
-        <di:waypoint x="518" y="90" />
+        <di:waypoint x="678" y="90" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="416" y="175" width="54" height="15" />
         </bpmndi:BPMNLabel>
@@ -163,38 +163,38 @@ Exercises:
       <bpmndi:BPMNEdge id="Flow_split_long_di" bpmnElement="Flow_split_long">
         <di:waypoint x="408" y="245" />
         <di:waypoint x="408" y="350" />
-        <di:waypoint x="518" y="350" />
+        <di:waypoint x="678" y="350" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="416" y="250" width="45" height="15" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_approve_to_end_di" bpmnElement="Flow_approve_to_end">
-        <di:waypoint x="618" y="220" />
-        <di:waypoint x="710" y="220" />
+        <di:waypoint x="778" y="220" />
+        <di:waypoint x="870" y="220" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_shortnotify_to_shortclose_di" bpmnElement="Flow_shortnotify_to_shortclose">
-        <di:waypoint x="618" y="90" />
-        <di:waypoint x="678" y="90" />
+        <di:waypoint x="778" y="90" />
+        <di:waypoint x="838" y="90" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_shortclose_to_end_di" bpmnElement="Flow_shortclose_to_end">
-        <di:waypoint x="778" y="90" />
-        <di:waypoint x="870" y="90" />
+        <di:waypoint x="938" y="90" />
+        <di:waypoint x="1030" y="90" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_longcollect_to_longassess_di" bpmnElement="Flow_longcollect_to_longassess">
-        <di:waypoint x="618" y="350" />
-        <di:waypoint x="678" y="350" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_longassess_to_longrule_di" bpmnElement="Flow_longassess_to_longrule">
         <di:waypoint x="778" y="350" />
         <di:waypoint x="838" y="350" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_longrule_to_longarchive_di" bpmnElement="Flow_longrule_to_longarchive">
+      <bpmndi:BPMNEdge id="Flow_longassess_to_longrule_di" bpmnElement="Flow_longassess_to_longrule">
         <di:waypoint x="938" y="350" />
         <di:waypoint x="998" y="350" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_longarchive_to_end_di" bpmnElement="Flow_longarchive_to_end">
+      <bpmndi:BPMNEdge id="Flow_longrule_to_longarchive_di" bpmnElement="Flow_longrule_to_longarchive">
         <di:waypoint x="1098" y="350" />
-        <di:waypoint x="1190" y="350" />
+        <di:waypoint x="1158" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_longarchive_to_end_di" bpmnElement="Flow_longarchive_to_end">
+        <di:waypoint x="1258" y="350" />
+        <di:waypoint x="1350" y="350" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

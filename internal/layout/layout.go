@@ -78,7 +78,8 @@ type Result struct {
 	EdgeLabels map[string]Rect    // labels of named sequence flows
 	Edges      map[string][]Point // sequence flows and associations
 	// Retrograde holds the sequence flows of chains laid out right to left
-	// (rule L3). They legitimately run leftwards, so the forward-direction
+	// (rule L3), and the entry and body flows of lifted loop-return bodies
+	// (rule N3b). They legitimately run leftwards, so the forward-direction
 	// invariant exempts exactly these and no others.
 	Retrograde map[string]bool
 	// Merged maps a rejoin bundle's follower to the flow that owns the

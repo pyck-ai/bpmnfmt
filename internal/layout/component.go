@@ -39,6 +39,11 @@ type compLayout struct {
 	marginUse int
 	skyEdge   map[string]bool // same-row detours arching over their row (M3)
 	riserRank map[string]int  // "target/row" -> slots right of the target's column (M4)
+	// riserMerge maps a forward rejoin to the target whose own column it
+	// shares with the rest of its bundle (rule N1b); riserBundles holds
+	// one entry per such target.
+	riserMerge   map[string]string
+	riserBundles map[string]*riserBundle
 
 	// Vertical geometry, filled by materializeY.
 	rowCY    []float64
@@ -55,13 +60,15 @@ type compLayout struct {
 func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSize map[string]Size) (*Result, error) {
 	cl := &compLayout{
 		p: p, g: g, c: c,
-		subSize:   subSize,
-		x:         map[string]float64{},
-		rowOf:     map[string]int{},
-		planByID:  map[string]*edgePlan{},
-		sides:     map[sideKey][]*docking{},
-		skyEdge:   map[string]bool{},
-		riserRank: map[string]int{},
+		subSize:      subSize,
+		x:            map[string]float64{},
+		rowOf:        map[string]int{},
+		planByID:     map[string]*edgePlan{},
+		sides:        map[sideKey][]*docking{},
+		skyEdge:      map[string]bool{},
+		riserRank:    map[string]int{},
+		riserMerge:   map[string]string{},
+		riserBundles: map[string]*riserBundle{},
 		res: &Result{
 			Shapes:     map[string]Rect{},
 			Labels:     map[string]Rect{},
@@ -80,6 +87,7 @@ func layoutComponent(p *model.Process, g *graph.Graph, c *graph.Component, subSi
 		return nil, err
 	}
 	cl.applyRetro()
+	cl.applyLoopReturns()
 	cl.alignChains()
 	cl.assignRows()
 	if err := cl.planRoutes(); err != nil {
@@ -127,6 +135,28 @@ func (cl *compLayout) spacingWidth(id string) float64 {
 		}
 	}
 	return w
+}
+
+// flowGapX is the border-to-border clearance two horizontally adjacent
+// nodes need (rule P3b). A NAMED flow between them has its label laid
+// along the run connecting them, so the gap must fit that label: a gap
+// shorter than the label leaves the label lapping into the shape it points
+// at, and no amount of nudging (rule B2) can escape it — the room has to be
+// reserved here, exactly as a named event or gateway reserves its own
+// label width above. The label is measured the way placeLabels renders it,
+// so what is reserved is what is drawn.
+func (cl *compLayout) flowGapX(from, to string) float64 {
+	gap := GapX
+	for _, fl := range cl.g.ForwardOut(from) {
+		if fl.TargetRef != to || strings.TrimSpace(fl.Name) == "" {
+			continue
+		}
+		lw, _ := textmetrics.Box(fl.Name, FlowLabelWrap)
+		if need := lw + 2*LabelGap; need > gap {
+			gap = need
+		}
+	}
+	return gap
 }
 
 // shape returns the node rect; only valid after materializeY.
@@ -206,7 +236,8 @@ func (cl *compLayout) assignX() error {
 		for i, id := range ch.nodes {
 			if i > 0 {
 				prev := ch.nodes[i-1]
-				cons[id] = append(cons[id], constr{prev, (cl.spacingWidth(prev)+cl.spacingWidth(id))/2 + GapX})
+				cons[id] = append(cons[id], constr{prev,
+					(cl.spacingWidth(prev)+cl.spacingWidth(id))/2 + cl.flowGapX(prev, id)})
 			}
 		}
 		head := ch.nodes[0]
@@ -373,6 +404,10 @@ func snapDownToColumn(x float64) float64 {
 // way the back edge would have to travel sideways again, which is worse
 // than the ordinary way-back line below the row. Only an exact fill is
 // accepted — everything else keeps the forward layout it already has.
+//
+// A rejected candidate that is a pure loop-return (rule N3) is LIFTED
+// instead of hanging below: assignRows has not run yet, so flipping the
+// chain here routes it above the spine, returning through the sky.
 func (cl *compLayout) applyRetro() {
 	for _, ch := range cl.chains {
 		if !ch.retro {
@@ -381,6 +416,7 @@ func (cl *compLayout) applyRetro() {
 		fl := backEdgeOut(cl.g, ch.nodes[len(ch.nodes)-1])
 		if fl == nil {
 			ch.retro = false
+			ch.lifted = ch.loopReturn
 			continue
 		}
 		xs := make([]float64, len(ch.nodes))
@@ -391,11 +427,51 @@ func (cl *compLayout) applyRetro() {
 		}
 		if math.Abs(xs[len(xs)-1]-cl.x[fl.TargetRef]) > 0.5 {
 			ch.retro = false // does not fill the span; keep the way-back line
+			ch.lifted = ch.loopReturn
 			continue
 		}
 		for i, id := range ch.nodes {
 			cl.x[id] = xs[i]
 		}
+	}
+}
+
+// applyLoopReturns lays each lifted loop-return body out RIGHT TO LEFT
+// (rule N3b), mirroring rule L3's backward walk in the sky: the head sits
+// one column LEFT of its split and every following node marches further
+// left toward the return target. Unlike L3 there is NO fill condition —
+// the sky is open, so wherever the body ends, the return drops into the
+// target's top from there (route.go falls back when the tail overshoots).
+//
+// A body that would run off the left edge of the grid, and a subtree with
+// branches of its own, keep the forward reading; the sky-lane return still
+// serves them.
+func (cl *compLayout) applyLoopReturns() {
+	for _, ch := range cl.chains {
+		if !ch.lifted || !ch.loopReturn || ch.weight != len(ch.nodes) {
+			continue
+		}
+		xs := make([]float64, len(ch.nodes))
+		xs[0] = snapDownToColumn(cl.x[ch.parentNode] - ColPitch)
+		if xs[0] >= cl.x[ch.parentNode]-0.5 {
+			continue // the split sits on the first column; nowhere to go
+		}
+		ok := true
+		for i := 1; i < len(ch.nodes); i++ {
+			gap := (cl.spacingWidth(ch.nodes[i-1])+cl.spacingWidth(ch.nodes[i]))/2 + GapX
+			xs[i] = snapDownToColumn(xs[i-1] - gap)
+			if xs[i] >= xs[i-1]-0.5 {
+				ok = false // ran off the left edge of the grid
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		for i, id := range ch.nodes {
+			cl.x[id] = xs[i]
+		}
+		ch.skyRetro = true
 	}
 }
 
@@ -673,10 +749,11 @@ func (cl *compLayout) assignRows() {
 // span [lo, hi], so a same-row detour may arch over the row instead of
 // dipping under it (rule M3).
 //
-// Three things can occupy the sky: a chain on a higher row, an annotation
-// band (README R8 reserves the space directly above a node's row for its
-// short notes), and another vertical already owning one of the two riser
-// columns (rules L2/R7).
+// Two things can occupy the sky: a chain on a higher row, and another
+// vertical already owning one of the two riser columns (rules L2/R7). A
+// short-annotation band does NOT block it: sky lanes stack ABOVE the band
+// (see materializeY), and an annotation sitting in a riser's column dodges
+// sideways when it is placed.
 func (cl *compLayout) freeSky(lo, hi float64, R int, risers ...float64) bool {
 	lo, hi = lo-Clearance, hi+Clearance
 	for r := 0; r < R; r++ {
@@ -687,15 +764,6 @@ func (cl *compLayout) freeSky(lo, hi float64, R int, risers ...float64) bool {
 			if sp.lo < hi && lo < sp.hi {
 				return false
 			}
-		}
-	}
-	for _, ann := range cl.componentAnnotations() {
-		if ann.anchor == "" || ann.prose || cl.rowOf[ann.anchor] > R {
-			continue
-		}
-		ax := cl.x[ann.anchor]
-		if ax-ann.w/2 < hi && lo < ax+ann.w/2 {
-			return false
 		}
 	}
 	for _, x := range risers {

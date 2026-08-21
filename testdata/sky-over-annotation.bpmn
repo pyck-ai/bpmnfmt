@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_SkyOverAnnotation" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_SkyOverAnnotation" name="Sky over annotation" isExecutable="true">
+    <bpmn:documentation>Rule N2 fixture: a short-annotation band does not block the sky. A same-row
+way-back edge whose span overlaps a short annotation anchored to its target
+still arches ABOVE the row: the sky lane stacks above the annotation band,
+and the annotation dodges sideways out of the riser's column.
+
+Shape: Start -&gt; Home -&gt; Step -&gt; G_Loop -&gt; End on the spine, with G_Loop's
+back edge returning to Home — a same-row detour spanning the annotation
+anchored to Home.
+
+Exercises:
+  - the way-back edge leaves G_Loop's top corner and enters Home's top,
+  - its line runs above the annotation box, which sits above the row,
+  - the annotation is pushed off the riser's column, not run through.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Sky" name="Item arrived">
+      <bpmn:outgoing>Flow_start_home</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_home" sourceRef="Start_Sky" targetRef="Task_Home" />
+    <bpmn:userTask id="Task_Home" name="Check stock">
+      <bpmn:incoming>Flow_start_home</bpmn:incoming>
+      <bpmn:incoming>Flow_loop_home</bpmn:incoming>
+      <bpmn:outgoing>Flow_home_step</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_home_step" sourceRef="Task_Home" targetRef="Task_Step" />
+    <bpmn:serviceTask id="Task_Step" name="Count items">
+      <bpmn:incoming>Flow_home_step</bpmn:incoming>
+      <bpmn:outgoing>Flow_step_loop</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_step_loop" sourceRef="Task_Step" targetRef="G_Loop" />
+    <bpmn:exclusiveGateway id="G_Loop" name="Count differs?">
+      <bpmn:incoming>Flow_step_loop</bpmn:incoming>
+      <bpmn:outgoing>Flow_loop_home</bpmn:outgoing>
+      <bpmn:outgoing>Flow_loop_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_loop_home" name="yes" sourceRef="G_Loop" targetRef="Task_Home" />
+    <bpmn:sequenceFlow id="Flow_loop_end" name="no" sourceRef="G_Loop" targetRef="End_Sky" />
+    <bpmn:endEvent id="End_Sky" name="Stock checked">
+      <bpmn:incoming>Flow_loop_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:textAnnotation id="Anno_Home">
+      <bpmn:text>ID: CheckStock</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Home" associationDirection="None" sourceRef="Task_Home" targetRef="Anno_Home" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_SkyOverAnnotation">
+    <bpmndi:BPMNPlane id="BPMNPlane_SkyOverAnnotation" bpmnElement="Process_SkyOverAnnotation" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -23,6 +23,15 @@ type chain struct {
 	weight     int    // node count of this chain plus its whole subtree
 	lifted     bool   // routed above its parent instead of below
 	retro      bool   // laid out right to left; the chain IS the way-back line
+	// loopReturn marks a branch that exists only to return: every path
+	// through its subtree ends in a back edge to a spine node earlier than
+	// the split (rule N3). It is lifted above the spine — immediately, or
+	// on applyRetro's revert when it is also a retro candidate.
+	loopReturn bool
+	// skyRetro marks a lifted loop-return whose body was laid out right to
+	// left (rule N3b): the head sits one column left of its split, the
+	// body reads leftward, and the return leaves the tail's left face.
+	skyRetro bool
 }
 
 // decompose splits a component into chains. Every node lands in exactly one
@@ -163,6 +172,7 @@ func decompose(g *graph.Graph, c *graph.Component) ([]*chain, map[string]int, er
 	markLifted(g, c, chains)
 	markLoopExits(g, c, chains)
 	markRetro(g, chains, chainOf)
+	markLoopReturns(g, c, chains)
 	return chains, chainOf, nil
 }
 
@@ -273,6 +283,8 @@ func computeWeights(chains []*chain) {
 // subtreeHasBackSource reports whether any node in the chain's subtree is
 // the source of a back edge. Such branches are never lifted: rule e keeps
 // loop lanes below the source's row, which a lifted branch would violate.
+// The one exception is a pure loop-return branch (rule N3, markLoopReturns),
+// whose back edges return through the sky instead.
 func subtreeHasBackSource(g *graph.Graph, chains []*chain, kids map[int][]int, idx int) bool {
 	stack := []int{idx}
 	for len(stack) > 0 {
@@ -309,7 +321,8 @@ func subtreeNodes(chains []*chain, kids map[int][]int, idx int) map[string]bool 
 // it rejoins anything, no forward flow leaves it, and nothing in it sources
 // a back edge. Only such a branch may be routed above its split — a branch
 // that re-merges downstream would have to come back down across the spine,
-// and a loop source needs the lane below its row (rule e).
+// and a loop source needs the lane below its row (rule e; a pure
+// loop-return branch is the exception and lifts via markLoopReturns).
 func isTerminalSubtree(g *graph.Graph, chains []*chain, kids map[int][]int, idx int) bool {
 	if subtreeHasBackSource(g, chains, kids, idx) {
 		return false
@@ -432,6 +445,92 @@ func markLoopExits(g *graph.Graph, c *graph.Component, chains []*chain) {
 			continue
 		}
 		ch.lifted = true
+	}
+}
+
+// markLoopReturns lifts branches that exist only to return (rule N3): the
+// split sits on the spine and every path through the subtree ends in a back
+// edge to a spine node EARLIER on the spine than the split ("earlier" by
+// spine order, not by column). Below-spine gaps belong to forward branches
+// and their rejoins; the sky belongs to returns, so such a branch reads
+// best above the spine, its back edges dropping through the gap above the
+// target's row.
+//
+// This deliberately relaxes rule e's "back-edge sources never lift" (see
+// subtreeHasBackSource) for exactly this shape: these back edges do not
+// need the lane below their row — they return through the sky.
+//
+// Rule L3 keeps precedence: a retro candidate stays marked and lifts only
+// when applyRetro rejects the exact fill.
+func markLoopReturns(g *graph.Graph, c *graph.Component, chains []*chain) {
+	kids := childrenOf(chains)
+	spineIdx := map[string]int{}
+	for i, id := range c.Spine {
+		spineIdx[id] = i
+	}
+	for _, ch := range chains {
+		if ch.parent < 0 || ch.isRoot || ch.parentNode == "" || ch.lifted {
+			continue
+		}
+		split, onSpine := spineIdx[ch.parentNode]
+		if !onSpine {
+			continue // nested splits stack below (rule B)
+		}
+		inside := subtreeNodes(chains, kids, ch.idx)
+		subtree := []int{ch.idx}
+		for qi := 0; qi < len(subtree); qi++ {
+			subtree = append(subtree, kids[subtree[qi]]...)
+		}
+		ok := true
+		for _, ci := range subtree {
+			cc := chains[ci]
+			// No chain of the subtree may rejoin, and no forward flow may
+			// leave OR enter it (other than the entry flow): lifting drags
+			// the whole subtree above the spine, which any other forward
+			// connection would then have to climb over.
+			if cc.mergeNode != "" {
+				ok = false
+				break
+			}
+			for _, id := range cc.nodes {
+				for _, fl := range g.ForwardOut(id) {
+					if !inside[fl.TargetRef] {
+						ok = false
+					}
+				}
+				for _, fl := range g.ForwardIn(id) {
+					if fl.ID != ch.entryFlow && !inside[fl.SourceRef] {
+						ok = false
+					}
+				}
+				// Every back edge must return to a spine node earlier than
+				// the split; a dead end without one is a forward stop, not
+				// a return.
+				backs := 0
+				for _, fl := range g.Out[id] {
+					if !g.Back[fl.ID] {
+						continue
+					}
+					backs++
+					if t, tOnSpine := spineIdx[fl.TargetRef]; !tOnSpine || t >= split {
+						ok = false
+					}
+				}
+				if backs == 0 && len(g.ForwardOut(id)) == 0 {
+					ok = false
+				}
+			}
+			if !ok {
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		ch.loopReturn = true
+		if !ch.retro {
+			ch.lifted = true
+		}
 	}
 }
 

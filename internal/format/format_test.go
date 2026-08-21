@@ -37,6 +37,10 @@ var fixtureNames = []string{
 	"loop-branch-backwards.bpmn",
 	"sky-over-the-spine.bpmn",
 	"rejoin-riser-depth.bpmn",
+	"riser-depth-blocked.bpmn",
+	"return-bundle-merge.bpmn",
+	"sky-over-annotation.bpmn",
+	"loop-return-lift.bpmn",
 	// split-last-in-chain guards the rule-D cycle fallback: a regression
 	// there surfaces as a hard "forward flows contain a cycle" error.
 	"split-last-in-chain.bpmn",
@@ -327,13 +331,82 @@ func TestBranchEntryElbow(t *testing.T) {
 	}
 }
 
+// TestLoopReturnLift: rule N3. A branch whose subtree has NO forward exit —
+// every path ends in a way-back edge to a spine node earlier than its
+// split — is a loop-return detour. Rule L3's retrograde walk is preferred,
+// but when the exact fill fails the branch is LIFTED above the spine
+// instead of hanging below: below-spine gaps belong to forward branches
+// and their rejoins; the sky belongs to returns. The lifted body reads
+// RIGHT TO LEFT (rule N3b): head one column left of the split, entry into
+// its right face, return out of the tail's left face into the target's top.
+func TestLoopReturnLift(t *testing.T) {
+	_, _, lay := layoutOf(t, "loop-return-lift.bpmn")
+	cy := func(id string) float64 { r := lay.Shapes[id]; return r.Y + r.H/2 }
+	spine := cy("G_Decide")
+
+	// Only the entry hop reads leftwards by design; the back edge is not
+	// retrograde — rule L3's walk stayed rejected.
+	if len(lay.Retrograde) != 1 || !lay.Retrograde["Flow_decide_redo"] {
+		t.Errorf("Retrograde should name exactly the entry flow, got %v", lay.Retrograde)
+	}
+	if cy("Task_Redo") >= spine {
+		t.Errorf("Task_Redo must be lifted above the spine (cy=%.0f, spine=%.0f)",
+			cy("Task_Redo"), spine)
+	}
+	redo, prepare, gw := lay.Shapes["Task_Redo"], lay.Shapes["Task_Prepare"], lay.Shapes["G_Decide"]
+	if d := redo.CX() - (gw.CX() - layout.ColPitch); d > 0.5 || d < -0.5 {
+		t.Errorf("the head must sit one column left of its split (cx=%.0f, want %.0f)",
+			redo.CX(), gw.CX()-layout.ColPitch)
+	}
+	// The entry rises out of the gateway's top corner in its own column
+	// and turns once into the head's right face.
+	entry := lay.Edges["Flow_decide_redo"]
+	if len(entry) != 3 {
+		t.Fatalf("Flow_decide_redo should be a 3-point rise-then-left elbow, got %v", entry)
+	}
+	if entry[0].X != gw.CX() || entry[0].Y != gw.Y {
+		t.Errorf("the entry must leave the gateway's top corner (got %v, want %.0f,%.0f)",
+			entry[0], gw.CX(), gw.Y)
+	}
+	if entry[1].X != entry[0].X || entry[1].Y >= entry[0].Y {
+		t.Errorf("the entry must rise in the gateway's column (%v -> %v)", entry[0], entry[1])
+	}
+	if last := entry[2]; last.X != redo.Right() || last.Y != entry[1].Y {
+		t.Errorf("the entry must turn once into the head's right face (got %v, want %.0f,%.0f)",
+			last, redo.Right(), entry[1].Y)
+	}
+	// The return leaves the tail's LEFT face, runs back along its own row
+	// and drops once into the target's top — a single arrowhead.
+	back := lay.Edges["Flow_redo_back"]
+	if len(back) != 3 {
+		t.Fatalf("Flow_redo_back should be a 3-point left-then-down elbow, got %v", back)
+	}
+	if back[0].X != redo.X || back[0].Y != redo.CY() {
+		t.Errorf("Flow_redo_back must leave Task_Redo's left face (got %v, want %.0f,%.0f)",
+			back[0], redo.X, redo.CY())
+	}
+	if back[1].Y != back[0].Y || back[1].X >= back[0].X {
+		t.Errorf("Flow_redo_back must run leftwards along its own row (%v -> %v)", back[0], back[1])
+	}
+	last := back[2]
+	if last.X != prepare.CX() || last.Y != prepare.Y {
+		t.Errorf("Flow_redo_back must sink into Task_Prepare's top (got %v, want %.0f,%.0f)",
+			last, prepare.CX(), prepare.Y)
+	}
+	if back[1].X != last.X {
+		t.Errorf("Flow_redo_back must drop straight in the target's column (%v -> %v)", back[1], last)
+	}
+}
+
 // TestBackEdgeRunsBelow: rule E. A way-back edge leaves the source's
-// bottom, runs on a line below the rows, and rises into the target's bottom.
+// bottom, runs on a line below the rows, and rises into the target's
+// bottom. The subtree here reaches a forward dead end too, so it is no
+// pure loop-return: rule N3 does not lift it and the line stays below.
 func TestBackEdgeRunsBelow(t *testing.T) {
-	_, _, lay := layoutOf(t, "back-edge-below.bpmn")
-	src := lay.Shapes["Task_Correct"]
-	dst := lay.Shapes["Task_EnterData"]
-	pts := lay.Edges["Flow_correct_back"]
+	_, _, lay := layoutOf(t, "return-bundle-merge.bpmn")
+	src := lay.Shapes["G_More"]
+	dst := lay.Shapes["Task_Target"]
+	pts := lay.Edges["Flow_more_back"]
 
 	if len(pts) < 4 {
 		t.Fatalf("way-back edge should have at least 4 points, got %v", pts)
@@ -496,21 +569,24 @@ func TestLoopHeaderKeepsBodyStraight(t *testing.T) {
 	}
 }
 
-// TestRejoinRiserDepth: rule M4. Several rejoins into one target's bottom
-// face step right with the depth of their source row — the shallowest turns
-// up leftmost. A riser from a deeper row would otherwise cut the horizontal
-// approach of every shallower one, which is a forbidden crossing no rule
-// permits. Asserted by ROW, not by branch name: which alternate lands on
-// which tier is rule C's business (longest-first), not M4's.
+// TestRejoinRiserDepth: rule N1b. Two rejoins into one target's bottom face
+// coming from DIFFERENT rows do not step apart — they merge onto a single
+// riser standing in the target's own column, so the pair reads as one line
+// growing as the second arc joins it and ending in one arrowhead. Depth
+// still decides something, just not the column: the DEEPEST member owns the
+// riser, because its run reaches furthest down and contains every shallower
+// one. Rule M4's rank is suppressed for members that merge — there is no
+// horizontal approach left to cut once the two share a line.
+//
+// Asserted by ROW, not by branch name: which alternate lands on which tier
+// is rule C's business (longest-first), not N1b's.
 func TestRejoinRiserDepth(t *testing.T) {
 	_, _, lay := layoutOf(t, "rejoin-riser-depth.bpmn")
 	join := lay.Shapes["G_Join"]
 
-	// Riser column and source row of each rejoin into G_Join's bottom.
 	type riser struct {
-		id string
-		x  float64
-		cy float64
+		id  string
+		pts []layout.Point
 	}
 	var risers []riser
 	for _, id := range []string{"Flow_near_join", "Flow_far2_join"} {
@@ -518,20 +594,134 @@ func TestRejoinRiserDepth(t *testing.T) {
 		if len(pts) != 3 {
 			t.Fatalf("%s should be a 3-point right-then-up elbow, got %v", id, pts)
 		}
-		if d := math.Abs(pts[2].X - join.CX()); d > join.W/2-4+0.5 {
-			t.Errorf("%s must land on G_Join's bottom face (x=%.0f, cx=%.0f)",
-				id, pts[2].X, join.CX())
-		}
-		risers = append(risers, riser{id, pts[1].X, pts[0].Y})
+		risers = append(risers, riser{id, pts})
 	}
 	shallow, deep := risers[0], risers[1]
-	if shallow.cy > deep.cy {
+	if shallow.pts[0].Y > deep.pts[0].Y {
 		shallow, deep = deep, shallow
 	}
-	if deep.x <= shallow.x {
-		t.Errorf("the deeper rejoin %s (row y=%.0f) must turn up right of the shallower %s "+
-			"(row y=%.0f): got x=%.0f vs %.0f", deep.id, deep.cy, shallow.id, shallow.cy,
-			deep.x, shallow.x)
+	// Different rows: this is the cross-gap case rule M2's g1 key never
+	// grouped, and the one rule M4 used to step apart.
+	if math.Abs(shallow.pts[0].Y-deep.pts[0].Y) < 0.5 {
+		t.Fatalf("the two rejoins must come from different rows (both at y=%.0f)",
+			shallow.pts[0].Y)
+	}
+
+	// One riser column, and it is the target's OWN — not a slot beside it.
+	if math.Abs(shallow.pts[1].X-deep.pts[1].X) > 0.5 {
+		t.Errorf("the rejoins must share one riser column (got %.0f vs %.0f)",
+			shallow.pts[1].X, deep.pts[1].X)
+	}
+	if math.Abs(deep.pts[1].X-join.CX()) > 0.5 {
+		t.Errorf("the shared riser must stand in G_Join's own column (x=%.0f, cx=%.0f)",
+			deep.pts[1].X, join.CX())
+	}
+
+	// One arrowhead: both end on the identical point, and on a diamond that
+	// point is the bottom VERTEX — the merged entry carries no offset, so it
+	// never slides along the slanted face (rule G6).
+	es, ed := shallow.pts[2], deep.pts[2]
+	if math.Abs(es.X-ed.X) > 0.5 || math.Abs(es.Y-ed.Y) > 0.5 {
+		t.Errorf("the rejoins must share one entry point (got %v vs %v)", es, ed)
+	}
+	if math.Abs(es.X-join.CX()) > 0.5 || math.Abs(es.Y-join.Bottom()) > 0.5 {
+		t.Errorf("the shared entry must sit on G_Join's bottom vertex (got %v, want %.0f,%.0f)",
+			es, join.CX(), join.Bottom())
+	}
+
+	// The shallower run is CONTAINED in the deeper one: that containment is
+	// what makes the two read as a single stroke rather than as two lines
+	// that happen to overlap.
+	if shallow.pts[1].Y >= deep.pts[1].Y {
+		t.Errorf("%s (turns up at y=%.0f) must lie inside %s's run (turns up at y=%.0f)",
+			shallow.id, shallow.pts[1].Y, deep.id, deep.pts[1].Y)
+	}
+
+	// Declared, never inferred: the shallower rejoin follows the deeper one,
+	// which owns the riser.
+	if lay.Merged[shallow.id] != deep.id {
+		t.Errorf("%s should be declared merged into %s, got %v", shallow.id, deep.id, lay.Merged)
+	}
+	if lay.Merged[deep.id] != "" {
+		t.Errorf("%s owns the riser and must follow nothing, got %q", deep.id, lay.Merged[deep.id])
+	}
+}
+
+// TestRiserDepthBlocked: rule M4, the half rule N1b did not swallow. A
+// rejoin whose target-column riser is blocked by a shape cannot lie on the
+// bundle's line, so it keeps its own riser and its own arrowhead — and then
+// the depth rank is what decides where that riser stands.
+//
+// Here a dead-end branch parks an end event in Settle's own column on the
+// tier BETWEEN the two rejoins: the shallow one turns up above it and is
+// unaffected, the deep one would have to pass straight through it. The deep
+// rejoin must step RIGHT, never left, or its riser would cut the shallow
+// one's horizontal approach. Its rank is what buys it the slot far enough
+// out to clear the blocker: every offset a rank-0 rejoin may try still ends
+// inside the blocker's clearance.
+func TestRiserDepthBlocked(t *testing.T) {
+	_, _, lay := layoutOf(t, "riser-depth-blocked.bpmn")
+	settle := lay.Shapes["Task_Settle"]
+
+	shallow := lay.Edges["Flow_shallow_join"] // rejoins from the upper tier
+	deep := lay.Edges["Flow_deep_join"]       // rejoins from the lower tier
+	if len(shallow) != 3 || len(deep) != 3 {
+		t.Fatalf("both rejoins should be 3-point right-then-up elbows, got %v / %v", shallow, deep)
+	}
+	if shallow[0].Y >= deep[0].Y {
+		t.Fatalf("Flow_deep_join's row (y=%.0f) must lie below Flow_shallow_join's (y=%.0f)",
+			deep[0].Y, shallow[0].Y)
+	}
+
+	// The blocker is really in Settle's column, and really on a tier between
+	// the two: that is what makes this the blocked case rather than a plain
+	// two-rejoin bundle.
+	blocker := lay.Shapes["End_Abort"]
+	if math.Abs(blocker.CX()-settle.CX()) > 0.5 {
+		t.Fatalf("End_Abort must sit in Settle's own column (cx=%.0f, want %.0f)",
+			blocker.CX(), settle.CX())
+	}
+	if blocker.CY() <= shallow[0].Y || blocker.CY() >= deep[0].Y {
+		t.Fatalf("End_Abort (y=%.0f) must sit between the two rejoin rows (%.0f and %.0f)",
+			blocker.CY(), shallow[0].Y, deep[0].Y)
+	}
+
+	// The shallow rejoin is unobstructed, so it turns up in Settle's own
+	// column exactly as rule L1 wants.
+	if math.Abs(shallow[1].X-settle.CX()) > 0.5 {
+		t.Errorf("Flow_shallow_join must turn up in Settle's own column (x=%.0f, cx=%.0f)",
+			shallow[1].X, settle.CX())
+	}
+	// The deep one steps right — past the blocker, not around its left.
+	if deep[1].X <= shallow[1].X {
+		t.Errorf("the deeper rejoin must turn up right of the shallower: got x=%.0f vs %.0f",
+			deep[1].X, shallow[1].X)
+	}
+	if deep[1].X < blocker.Right() {
+		t.Errorf("Flow_deep_join's riser (x=%.0f) must clear the blocker (right=%.0f)",
+			deep[1].X, blocker.Right())
+	}
+
+	// Two risers, two arrowheads, both on Settle's bottom face.
+	for _, e := range []struct {
+		id  string
+		pts []layout.Point
+	}{{"Flow_shallow_join", shallow}, {"Flow_deep_join", deep}} {
+		last := e.pts[2]
+		if math.Abs(last.Y-settle.Bottom()) > 0.5 {
+			t.Errorf("%s must land on Settle's bottom face (y=%.0f, want %.0f)",
+				e.id, last.Y, settle.Bottom())
+		}
+		if d := math.Abs(last.X - settle.CX()); d > settle.W/2-4+0.5 {
+			t.Errorf("%s lands %.0fpx off Settle's center, past its bottom face", e.id, d)
+		}
+		if owner := lay.Merged[e.id]; owner != "" {
+			t.Errorf("%s must keep its own riser, got merged into %q", e.id, owner)
+		}
+	}
+	if math.Abs(shallow[2].X-deep[2].X) < 0.5 {
+		t.Errorf("the two rejoins must carry separate arrowheads, both land at x=%.0f",
+			shallow[2].X)
 	}
 }
 
@@ -705,20 +895,42 @@ func TestRetrogradeLoopBranch(t *testing.T) {
 
 // TestBackEdgeBelowStaysBelow is rule L3's negative control and is
 // load-bearing: back-edge-below has one branch node across a two-column
-// loop, so the fill condition rejects it and the way-back line stays below
-// the rows. If the fill condition is ever loosened, this trips.
+// loop, so the fill condition rejects it — the branch is never walked
+// backwards. If the fill condition is ever loosened, this trips. The
+// rejected branch is a pure loop-return, so rule N3 lifts it above the
+// spine, reading right to left (N3b): head one column left of the split,
+// return out of the left face into the target's top.
 func TestBackEdgeBelowStaysBelow(t *testing.T) {
 	_, _, lay := layoutOf(t, "back-edge-below.bpmn")
-	if len(lay.Retrograde) != 0 {
-		t.Errorf("back-edge-below must not be laid out retrograde: %v", lay.Retrograde)
+	// Only the entry hop is registered as leftward-by-design; the back
+	// edge itself is not retrograde — rule L3's walk stayed rejected.
+	if len(lay.Retrograde) != 1 || !lay.Retrograde["Flow_valid_no"] {
+		t.Errorf("Retrograde should name exactly the entry flow, got %v", lay.Retrograde)
 	}
 	src, dst := lay.Shapes["Task_Correct"], lay.Shapes["Task_EnterData"]
-	pts := lay.Edges["Flow_correct_back"]
-	if len(pts) < 4 {
-		t.Fatalf("the way-back edge must keep its line below the rows, got %v", pts)
+	gw := lay.Shapes["Gateway_Valid"]
+	if src.CY() >= dst.CY() {
+		t.Errorf("the rejected loop-return must be lifted above the spine (src cy=%.0f, spine cy=%.0f)",
+			src.CY(), dst.CY())
 	}
-	if pts[1].Y <= math.Max(src.Bottom(), dst.Bottom()) {
-		t.Errorf("the way-back line must run below both rows (y=%.0f)", pts[1].Y)
+	if d := src.CX() - (gw.CX() - layout.ColPitch); d > 0.5 || d < -0.5 {
+		t.Errorf("the head must sit one column left of its split (cx=%.0f, want %.0f)",
+			src.CX(), gw.CX()-layout.ColPitch)
+	}
+	pts := lay.Edges["Flow_correct_back"]
+	if len(pts) != 3 {
+		t.Fatalf("the return should be a 3-point left-then-down elbow, got %v", pts)
+	}
+	if pts[0].X != src.X || pts[0].Y != src.CY() {
+		t.Errorf("the return must leave the lifted source's left face (got %v, want %.0f,%.0f)",
+			pts[0], src.X, src.CY())
+	}
+	if pts[1].Y != pts[0].Y || pts[1].X >= pts[0].X {
+		t.Errorf("the return must run leftwards along its own row (%v -> %v)", pts[0], pts[1])
+	}
+	if last := pts[2]; last.X != dst.CX() || last.Y != dst.Y {
+		t.Errorf("the return must sink into the target's top (got %v, want %.0f,%.0f)",
+			last, dst.CX(), dst.Y)
 	}
 }
 
@@ -833,7 +1045,7 @@ func TestNoDownwardRejoin(t *testing.T) {
 
 // TestRejoinBundleShareLane: rule L6. Runs in one gap that end at the same
 // target and rise into it are one bundle: they share a lane, so what the
-// reader sees is a single line under the row with short risers peeling off
+// reader sees is a single line beside the row with short risers peeling off
 // at the target's face, not a staircase of near-identical arcs.
 func TestRejoinBundleShareLane(t *testing.T) {
 	_, _, lay := layoutOf(t, "rejoin-bundle-lane.bpmn")
@@ -845,7 +1057,7 @@ func TestRejoinBundleShareLane(t *testing.T) {
 	for _, id := range arcs {
 		pts := lay.Edges[id]
 		if len(pts) != 4 {
-			t.Fatalf("%s should be a 4-point under-row arc, got %v", id, pts)
+			t.Fatalf("%s should be a 4-point arc, got %v", id, pts)
 		}
 		best, y, x := 0.0, 0.0, 0.0
 		for i := 0; i+1 < len(pts); i++ {
@@ -867,8 +1079,10 @@ func TestRejoinBundleShareLane(t *testing.T) {
 	}
 
 	// ONE riser, in the target's own column, and one arrowhead: every arc
-	// ends at the identical point on G_Join's bottom CORNER. Offset 0 means
-	// no stub, so this is the corner itself and not a point on a face.
+	// ends at the identical point on G_Join's top CORNER (the sky over the
+	// span is free, so the bundle arches over the row — rules M3/N2).
+	// Offset 0 means no stub, so this is the corner itself and not a point
+	// on a face.
 	join := lay.Shapes["G_Join"]
 	for i, x := range riser {
 		if math.Abs(x-join.CX()) > 0.5 {
@@ -877,9 +1091,9 @@ func TestRejoinBundleShareLane(t *testing.T) {
 		}
 	}
 	want := lay.Edges[arcs[0]][len(lay.Edges[arcs[0]])-1]
-	if math.Abs(want.X-join.CX()) > 0.5 || math.Abs(want.Y-join.Bottom()) > 0.5 {
-		t.Errorf("the bundle must land on G_Join's bottom corner (got %v, want %.0f,%.0f)",
-			want, join.CX(), join.Bottom())
+	if math.Abs(want.X-join.CX()) > 0.5 || math.Abs(want.Y-join.Y) > 0.5 {
+		t.Errorf("the bundle must land on G_Join's top corner (got %v, want %.0f,%.0f)",
+			want, join.CX(), join.Y)
 	}
 	for _, id := range arcs[1:] {
 		pts := lay.Edges[id]
@@ -896,6 +1110,98 @@ func TestRejoinBundleShareLane(t *testing.T) {
 		if lay.Merged[id] != arcs[0] {
 			t.Errorf("%s should be declared merged into %s, got %q", id, arcs[0], lay.Merged[id])
 		}
+	}
+}
+
+// TestReturnBundleMergeAcrossGaps: rule M2b. Way-back edges entering the
+// same node face merge into ONE riser at the target's column even when they
+// lie in DIFFERENT gaps: the shallower return's riser is contained in the
+// deeper one's, so the deeper return owns the trunk and both end on one
+// point with one arrowhead.
+func TestReturnBundleMergeAcrossGaps(t *testing.T) {
+	_, _, lay := layoutOf(t, "return-bundle-merge.bpmn")
+	target := lay.Shapes["Task_Target"]
+
+	shallow := lay.Edges["Flow_retry_back"] // returns from row 1
+	deep := lay.Edges["Flow_more_back"]     // returns from row 2
+	if len(shallow) < 4 || len(deep) < 4 {
+		t.Fatalf("both returns should be way-back routes, got %v / %v", shallow, deep)
+	}
+	// The two returns lie in different gaps: their lines run at different
+	// depths, which is what makes this a CROSS-gap merge.
+	if ys, yd := shallow[1].Y, deep[1].Y; yd <= ys {
+		t.Fatalf("Flow_more_back's line (y=%.0f) must run below Flow_retry_back's (y=%.0f)", yd, ys)
+	}
+	// One shared entry point on the target's bottom, in its own column.
+	es, ed := shallow[len(shallow)-1], deep[len(deep)-1]
+	if math.Abs(es.X-ed.X) > 0.5 || math.Abs(es.Y-ed.Y) > 0.5 {
+		t.Errorf("the returns must share one entry point (got %v vs %v)", es, ed)
+	}
+	if math.Abs(es.X-target.CX()) > 0.5 || math.Abs(es.Y-target.Bottom()) > 0.5 {
+		t.Errorf("the shared entry must sit on Task_Target's bottom center (got %v, want %.0f,%.0f)",
+			es, target.CX(), target.Bottom())
+	}
+	// The merge is declared: the shallower return follows the deeper one,
+	// which reaches furthest down and owns the riser.
+	if lay.Merged["Flow_retry_back"] != "Flow_more_back" {
+		t.Errorf("Flow_retry_back should be declared merged into Flow_more_back, got %v", lay.Merged)
+	}
+}
+
+// TestRejoinBundleMergeAcrossGaps: rule N1b, the forward counterpart of
+// M2b. Several forward rejoins arriving at one target's bottom face merge
+// into ONE riser in the target's column even though their horizontal runs
+// lie on DIFFERENT rows, so rule M2's g1 key never grouped them and rule M4
+// used to step them apart. The deepest rejoin owns the riser and the
+// shallower one's final run is contained in it.
+//
+// The gateway's THIRD inflow is the discriminator: it arrives along the
+// spine into the LEFT face, so it must be left exactly where it is. A left
+// -face spine arrival is not a riser and never joins a bundle.
+func TestRejoinBundleMergeAcrossGaps(t *testing.T) {
+	_, _, lay := layoutOf(t, "001_mc_workflow_assigned.bpmn")
+	join := lay.Shapes["Gateway_08wsh14"]
+
+	shallow := lay.Edges["Flow_08gou0k"] // rejoins from the upper tier
+	deep := lay.Edges["Flow_0rm1m90"]    // rejoins from the lower tier
+	if len(shallow) != 3 || len(deep) != 3 {
+		t.Fatalf("both rejoins should be 3-point right-then-up elbows, got %v / %v", shallow, deep)
+	}
+	// Different rows: this is what makes the merge a CROSS-gap one.
+	if ys, yd := shallow[0].Y, deep[0].Y; yd <= ys {
+		t.Fatalf("Flow_0rm1m90's row (y=%.0f) must lie below Flow_08gou0k's (y=%.0f)", yd, ys)
+	}
+	// One shared riser column and one shared terminal point. On a diamond
+	// that point is the bottom VERTEX: the merged entry carries no offset,
+	// so it never slides along the slanted face (rule G6).
+	if math.Abs(shallow[1].X-deep[1].X) > 0.5 {
+		t.Errorf("the rejoins must share one riser column (got %.0f vs %.0f)", shallow[1].X, deep[1].X)
+	}
+	es, ed := shallow[2], deep[2]
+	if math.Abs(es.X-ed.X) > 0.5 || math.Abs(es.Y-ed.Y) > 0.5 {
+		t.Errorf("the rejoins must share one entry point (got %v vs %v)", es, ed)
+	}
+	if math.Abs(es.X-join.CX()) > 0.5 || math.Abs(es.Y-join.Bottom()) > 0.5 {
+		t.Errorf("the shared entry must sit on the gateway's bottom vertex (got %v, want %.0f,%.0f)",
+			es, join.CX(), join.Bottom())
+	}
+	// Declared, never inferred: the shallower rejoin follows the deeper one.
+	if lay.Merged["Flow_08gou0k"] != "Flow_0rm1m90" {
+		t.Errorf("Flow_08gou0k should be declared merged into Flow_0rm1m90, got %v", lay.Merged)
+	}
+	// The spine arrival is untouched — straight along its row into the
+	// gateway's left face, sharing nothing with the bundle.
+	spine := lay.Edges["Flow_08lrpnf"]
+	if len(spine) != 2 {
+		t.Fatalf("Flow_08lrpnf should run straight along the spine, got %v", spine)
+	}
+	if last := spine[1]; math.Abs(last.X-join.X) > 0.5 || math.Abs(last.Y-join.CY()) > 0.5 {
+		t.Errorf("Flow_08lrpnf must enter the gateway's left face (got %v, want %.0f,%.0f)",
+			last, join.X, join.CY())
+	}
+	if lay.Merged["Flow_08lrpnf"] != "" {
+		t.Errorf("a left-face spine arrival must never join a riser bundle, got %v",
+			lay.Merged["Flow_08lrpnf"])
 	}
 }
 
@@ -1094,8 +1400,8 @@ func TestLiftedSubtreeStaysAbove(t *testing.T) {
 
 // TestTourExecutionAcceptance encodes the reference layout description:
 // spine on one row, branch tiers below, way-back edges on dedicated lines
-// below their rows entering the target's bottom, annotations above their
-// anchors.
+// clear of their rows (below between rows, above for a free-sky same-row
+// loop), annotations above their anchors.
 func TestTourExecutionAcceptance(t *testing.T) {
 	f := fixture(t, "tour-execution.bpmn")
 	p := f.Processes[0]
@@ -1127,10 +1433,19 @@ func TestTourExecutionAcceptance(t *testing.T) {
 		"Activity_delete_original", "Activity_enumerate_alternatives", "Gateway_02z33cs",
 		"Activity_0bgjw4w", "Activity_0xazvfn", "Activity_partial_reconcile",
 		"Activity_reconcile_shortage", "Activity_0jtm7jf",
-		"Activity_0e37vw3", "Activity_insert_shortfall",
 	} {
 		if cy(id) <= spineY+layout.RowH/2 {
 			t.Errorf("%s should hang below the spine (cy=%.0f, spine=%.0f)", id, cy(id), spineY)
+		}
+	}
+
+	// The replenish/insert-shortfall branch exists only to return: every
+	// path ends in the back edge to the pick-source scan, an earlier spine
+	// node. Rule N3 lifts it above the spine.
+	for _, id := range []string{"Activity_0e37vw3", "Activity_insert_shortfall"} {
+		if cy(id) >= spineY-layout.RowH/2 {
+			t.Errorf("%s is a loop-return branch and should sit above the spine (cy=%.0f, spine=%.0f)",
+				id, cy(id), spineY)
 		}
 	}
 
@@ -1145,9 +1460,11 @@ func TestTourExecutionAcceptance(t *testing.T) {
 		t.Errorf("Confirmed? not aligned under Scan box (dx=%.0f)", d)
 	}
 
-	// The pick loop is a way-back edge: it leaves the gateway's bottom
-	// corner, travels back on a line below the rows it passes under and
-	// rises into its target's bottom. Nothing of it goes above the spine.
+	// The pick loop is a same-row way-back edge. Its sky is occupied: the
+	// lifted loop-return body (rule N3b) sits one column left of its
+	// split, inside the loop's span. So the loop keeps rule 6's fallback —
+	// it leaves the gateway's bottom corner, travels back on a line below
+	// the rows it passes under and rises into its target's bottom.
 	loop := lay.Edges["Flow_0tcw3fm"]
 	if len(loop) < 4 {
 		t.Fatalf("pick loop should be a way-back route, got %v", loop)
@@ -1193,6 +1510,22 @@ func TestTourExecutionAcceptance(t *testing.T) {
 	}
 	if prev.X != last.X || prev.Y <= last.Y {
 		t.Errorf("pick loop should rise into its target (%v -> %v)", prev, last)
+	}
+
+	// The lifted body's return takes the sky instead: out of the tail's
+	// left face, back along its own row, one drop into the target's top.
+	ret := lay.Edges["Flow_insert_to_src"]
+	if len(ret) != 3 {
+		t.Fatalf("Flow_insert_to_src should be a 3-point left-then-down elbow, got %v", ret)
+	}
+	tail := lay.Shapes["Activity_insert_shortfall"]
+	if ret[0].X != tail.X || ret[0].Y != tail.CY() {
+		t.Errorf("Flow_insert_to_src must leave the tail's left face (got %v, want %.0f,%.0f)",
+			ret[0], tail.X, tail.CY())
+	}
+	if last := ret[2]; last.X != tgt.CX() || last.Y != tgt.Y {
+		t.Errorf("Flow_insert_to_src must sink into the target's top (got %v, want %.0f,%.0f)",
+			last, tgt.CX(), tgt.Y)
 	}
 
 	// Rule L2: the shortage rejoin owns one column for the rows it crosses

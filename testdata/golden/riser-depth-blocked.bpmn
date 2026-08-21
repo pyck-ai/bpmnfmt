@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_RiserDepthBlocked" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_RiserDepthBlocked" name="Riser depth blocked" isExecutable="true">
+    <bpmn:documentation>Rule M4 fixture: the depth rank still applies to rejoins that CANNOT
+merge onto one riser.
+
+Shape: Start -&gt; G_A -&gt; Assess -&gt; G_B -&gt; Settle -&gt; End on the spine. Two
+alternates rejoin Settle from two different tiers, and a third branch off
+G_A dead ends in an end event that lands in Settle's OWN column, on the
+tier between them.
+
+That dead end is the blocker. Rule N1b lets rejoins arriving at one face
+share a single riser in the target's column, but only while that column is
+clear of shapes for the rejoin's whole depth. It is clear for the shallow
+tier, which turns up above the blocker, and blocked for the deep tier,
+whose riser would have to pass straight through it — so no bundle forms
+and each rejoin keeps its own riser and its own arrowhead.
+
+The deep tier therefore has to step aside, and it has to step RIGHT: it
+approaches Settle from the left along its own row, so a riser turning up
+left of the shallow tier's would cut the shallow tier's approach. Rule M4
+ranks it one slot deeper than the shallow tier, and that rank is exactly
+what gives it the extra slot it needs to clear the blocker — at rank 0 the
+offsets it may try all end inside the blocker's clearance.
+
+Exercises:
+  - the shallow rejoin turns up in Settle's own column,
+  - the deep rejoin turns up strictly right of it, clear of the blocker,
+  - both are 3-point right-then-up elbows landing on Settle's bottom face,
+  - neither is declared merged into the other,
+  - the diagram has no crossings.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Blocked" name="Job filed">
+      <bpmn:outgoing>Flow_start_a</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_a" sourceRef="Start_Blocked" targetRef="G_A" />
+    <bpmn:exclusiveGateway id="G_A" name="Route">
+      <bpmn:incoming>Flow_start_a</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_mid</bpmn:outgoing>
+      <bpmn:outgoing>Flow_a_block</bpmn:outgoing>
+      <bpmn:outgoing>Flow_a_deep</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_a_mid" name="normal" sourceRef="G_A" targetRef="Task_Assess" />
+    <bpmn:serviceTask id="Task_Assess" name="Assess">
+      <bpmn:incoming>Flow_a_mid</bpmn:incoming>
+      <bpmn:outgoing>Flow_mid_b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_mid_b" sourceRef="Task_Assess" targetRef="G_B" />
+    <bpmn:exclusiveGateway id="G_B" name="Check">
+      <bpmn:incoming>Flow_mid_b</bpmn:incoming>
+      <bpmn:outgoing>Flow_b_settle</bpmn:outgoing>
+      <bpmn:outgoing>Flow_b_shallow</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_b_settle" name="clean" sourceRef="G_B" targetRef="Task_Settle" />
+    <bpmn:serviceTask id="Task_Settle" name="Settle">
+      <bpmn:incoming>Flow_b_settle</bpmn:incoming>
+      <bpmn:incoming>Flow_shallow_join</bpmn:incoming>
+      <bpmn:incoming>Flow_deep_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_settle_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_settle_end" sourceRef="Task_Settle" targetRef="End_Blocked" />
+    <bpmn:endEvent id="End_Blocked" name="Job settled">
+      <bpmn:incoming>Flow_settle_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_b_shallow" name="fix" sourceRef="G_B" targetRef="Task_Approve" />
+    <bpmn:serviceTask id="Task_Approve" name="Approve">
+      <bpmn:incoming>Flow_b_shallow</bpmn:incoming>
+      <bpmn:outgoing>Flow_shallow_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_shallow_join" sourceRef="Task_Approve" targetRef="Task_Settle" />
+    <bpmn:sequenceFlow id="Flow_a_block" name="abort" sourceRef="G_A" targetRef="Task_Log" />
+    <bpmn:serviceTask id="Task_Log" name="Log">
+      <bpmn:incoming>Flow_a_block</bpmn:incoming>
+      <bpmn:outgoing>Flow_log_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_log_notify" sourceRef="Task_Log" targetRef="Task_Notify" />
+    <bpmn:serviceTask id="Task_Notify" name="Notify">
+      <bpmn:incoming>Flow_log_notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_notify_escalate</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_notify_escalate" sourceRef="Task_Notify" targetRef="Task_Escalate" />
+    <bpmn:serviceTask id="Task_Escalate" name="Escalate">
+      <bpmn:incoming>Flow_notify_escalate</bpmn:incoming>
+      <bpmn:outgoing>Flow_escalate_abort</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_escalate_abort" sourceRef="Task_Escalate" targetRef="End_Abort" />
+    <bpmn:endEvent id="End_Abort" name="Job aborted">
+      <bpmn:incoming>Flow_escalate_abort</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_a_deep" name="retry" sourceRef="G_A" targetRef="Task_Retry" />
+    <bpmn:serviceTask id="Task_Retry" name="Retry">
+      <bpmn:incoming>Flow_a_deep</bpmn:incoming>
+      <bpmn:outgoing>Flow_deep_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_deep_join" sourceRef="Task_Retry" targetRef="Task_Settle" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_RiserDepthBlocked">
+      <bpmndi:BPMNShape id="Start_Blocked_di" bpmnElement="Start_Blocked">
+        <dc:Bounds x="54" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="122" width="45" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_A_di" bpmnElement="G_A" isMarkerVisible="true">
+        <dc:Bounds x="207" y="72" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="216" y="50" width="32" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Assess_di" bpmnElement="Task_Assess">
+        <dc:Bounds x="342" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_B_di" bpmnElement="G_B" isMarkerVisible="true">
+        <dc:Bounds x="527" y="72" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="535" y="50" width="34" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Settle_di" bpmnElement="Task_Settle">
+        <dc:Bounds x="822" y="57" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Blocked_di" bpmnElement="End_Blocked">
+        <dc:Bounds x="1014" y="79" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1003" y="122" width="58" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Approve_di" bpmnElement="Task_Approve">
+        <dc:Bounds x="662" y="187" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Log_di" bpmnElement="Task_Log">
+        <dc:Bounds x="342" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Notify_di" bpmnElement="Task_Notify">
+        <dc:Bounds x="502" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Escalate_di" bpmnElement="Task_Escalate">
+        <dc:Bounds x="662" y="317" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Abort_di" bpmnElement="End_Abort">
+        <dc:Bounds x="854" y="339" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="841" y="382" width="63" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Retry_di" bpmnElement="Task_Retry">
+        <dc:Bounds x="662" y="447" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_a_di" bpmnElement="Flow_start_a">
+        <di:waypoint x="90" y="97" />
+        <di:waypoint x="207" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_mid_di" bpmnElement="Flow_a_mid">
+        <di:waypoint x="257" y="97" />
+        <di:waypoint x="342" y="97" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="265" y="77" width="37" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_mid_b_di" bpmnElement="Flow_mid_b">
+        <di:waypoint x="442" y="97" />
+        <di:waypoint x="527" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_settle_di" bpmnElement="Flow_b_settle">
+        <di:waypoint x="577" y="97" />
+        <di:waypoint x="822" y="97" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="585" y="77" width="29" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_settle_end_di" bpmnElement="Flow_settle_end">
+        <di:waypoint x="922" y="97" />
+        <di:waypoint x="1014" y="97" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_shallow_di" bpmnElement="Flow_b_shallow">
+        <di:waypoint x="552" y="122" />
+        <di:waypoint x="552" y="227" />
+        <di:waypoint x="662" y="227" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="560" y="127" width="12" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_shallow_join_di" bpmnElement="Flow_shallow_join">
+        <di:waypoint x="762" y="227" />
+        <di:waypoint x="872" y="227" />
+        <di:waypoint x="872" y="137" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_block_di" bpmnElement="Flow_a_block">
+        <di:waypoint x="232" y="122" />
+        <di:waypoint x="232" y="357" />
+        <di:waypoint x="342" y="357" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="240" y="127" width="27" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_log_notify_di" bpmnElement="Flow_log_notify">
+        <di:waypoint x="442" y="357" />
+        <di:waypoint x="502" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_notify_escalate_di" bpmnElement="Flow_notify_escalate">
+        <di:waypoint x="602" y="357" />
+        <di:waypoint x="662" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_escalate_abort_di" bpmnElement="Flow_escalate_abort">
+        <di:waypoint x="762" y="357" />
+        <di:waypoint x="854" y="357" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_deep_di" bpmnElement="Flow_a_deep">
+        <di:waypoint x="232" y="122" />
+        <di:waypoint x="232" y="487" />
+        <di:waypoint x="662" y="487" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="240" y="155" width="24" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_deep_join_di" bpmnElement="Flow_deep_join">
+        <di:waypoint x="762" y="487" />
+        <di:waypoint x="914" y="487" />
+        <di:waypoint x="914" y="137" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -70,7 +70,12 @@ spine, and zero forbidden edge crossings.
    work, so cross-linked nodes stay on an adjacent row instead of being
    buried and routed around the diagram.
 2. **Grid.** Node centers snap to a 160px column grid and shared row
-   centerlines — elements line up horizontally and vertically.
+   centerlines — elements line up horizontally and vertically. Labels
+   reserve their own room in that spacing: a named event or gateway
+   reserves its label width, and a named sequence flow reserves its label
+   width in the gap between the two nodes it connects, so a flow label
+   never laps into the shape it points at. A long label can push the next
+   node a column further right.
 3. **Loops read forward.** At a gateway that a loop returns to, the loop
    body *is* the main line: it continues straight through the diamond, the
    way-back line returns below, and the loop's exit rises out of the top
@@ -119,6 +124,32 @@ spine, and zero forbidden edge crossings.
 8. **Annotations.** Short notes sit in a band directly above their anchor;
    prose notes are parked above or below the diagram with a short, clear
    association line.
+9. **Bundles arrive as one riser.** Lines entering the same node face merge
+   into a single riser in the target's column even when they run at
+   different depths: each shallower one joins the deepest one's riser, so
+   several arcs read as one line growing as each joins it, ending in one
+   arrowhead. This covers way-back returns whose lines lie in different
+   gaps and forward rejoins whose runs lie on different rows — the latter
+   share one riser instead of stepping apart by rule 5's depth order,
+   which only matters while they are separate lines. Returns and rejoins
+   bundle separately. A line whose target-column riser is blocked by a
+   shape keeps its own riser and its own arrowhead, and on a diamond the
+   merged entry lands on the bottom vertex rather than the slanted face.
+10. **The sky clears the notes.** A short-annotation band never blocks a
+    same-row detour: sky lanes stack above the band, and a note sitting in
+    a riser's column dodges sideways. Only chains on higher rows and
+    occupied riser columns keep a detour below its row (rule 6).
+11. **Loop-return detours lift.** A branch with no forward exit — every
+    path through it ends in a way-back edge to a spine node earlier than
+    its split — exists only to return. When rule 3's backwards walk cannot
+    fill the span exactly, the branch is lifted above the spine and returns
+    through the sky into its target's top: below-spine gaps belong to
+    forward branches and their rejoins; the sky belongs to returns. The
+    lifted body reads RIGHT TO LEFT, mirroring rule 3 without its fill
+    condition: the head sits one column left of the split (the entry rises
+    from the gateway's top into the head's right face), the body marches
+    leftward, and the return leaves the tail's left face and drops once
+    into the target's top.
 
 ## Lint rules
 

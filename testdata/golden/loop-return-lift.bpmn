@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_LoopReturnLift" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_LoopReturnLift" name="Loop return lift" isExecutable="true">
+    <bpmn:documentation>Rule N3 fixture: a branch whose subtree has NO forward exit — every path
+ends in a way-back edge to a spine node EARLIER on the spine than its split —
+is a loop-return detour. When rule L3's retrograde walk cannot fill the span
+exactly, the branch is LIFTED above the spine instead of hanging below:
+below-spine gaps belong to forward branches and their rejoins; the sky
+belongs to returns.
+
+Shape: Start -&gt; Prepare -&gt; Reserve -&gt; Load -&gt; G_Decide -&gt; Wrap -&gt; End on
+the spine; G_Decide's alternate is the single task Redo whose only exit
+loops back to Prepare, several columns left — one node across a four-column
+span, so the exact fill fails and the lift applies.
+
+Exercises:
+  - Redo sits above the spine row,
+  - the return leaves Redo's bottom, runs through the sky above the spine
+    and sinks into Prepare's top,
+  - no flow is laid out retrograde.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Lift" name="Order placed">
+      <bpmn:outgoing>Flow_start_prepare</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_prepare" sourceRef="Start_Lift" targetRef="Task_Prepare" />
+    <bpmn:userTask id="Task_Prepare" name="Prepare batch">
+      <bpmn:incoming>Flow_start_prepare</bpmn:incoming>
+      <bpmn:incoming>Flow_redo_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_prepare_reserve</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_prepare_reserve" sourceRef="Task_Prepare" targetRef="Task_Reserve" />
+    <bpmn:serviceTask id="Task_Reserve" name="Reserve stock">
+      <bpmn:incoming>Flow_prepare_reserve</bpmn:incoming>
+      <bpmn:outgoing>Flow_reserve_load</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_reserve_load" sourceRef="Task_Reserve" targetRef="Task_Load" />
+    <bpmn:userTask id="Task_Load" name="Load trolley">
+      <bpmn:incoming>Flow_reserve_load</bpmn:incoming>
+      <bpmn:outgoing>Flow_load_decide</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_load_decide" sourceRef="Task_Load" targetRef="G_Decide" />
+    <bpmn:exclusiveGateway id="G_Decide" name="Batch complete?">
+      <bpmn:incoming>Flow_load_decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_decide_wrap</bpmn:outgoing>
+      <bpmn:outgoing>Flow_decide_redo</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_decide_wrap" name="yes" sourceRef="G_Decide" targetRef="Task_Wrap" />
+    <bpmn:userTask id="Task_Wrap" name="Wrap batch">
+      <bpmn:incoming>Flow_decide_wrap</bpmn:incoming>
+      <bpmn:outgoing>Flow_wrap_end</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_wrap_end" sourceRef="Task_Wrap" targetRef="End_Lift" />
+    <bpmn:endEvent id="End_Lift" name="Batch shipped">
+      <bpmn:incoming>Flow_wrap_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_decide_redo" name="no, next round" sourceRef="G_Decide" targetRef="Task_Redo" />
+    <bpmn:serviceTask id="Task_Redo" name="Plan next round">
+      <bpmn:incoming>Flow_decide_redo</bpmn:incoming>
+      <bpmn:outgoing>Flow_redo_back</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_redo_back" sourceRef="Task_Redo" targetRef="Task_Prepare" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_LoopReturnLift">
+      <bpmndi:BPMNShape id="Start_Lift_di" bpmnElement="Start_Lift">
+        <dc:Bounds x="67" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="245" width="69" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Prepare_di" bpmnElement="Task_Prepare">
+        <dc:Bounds x="195" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Reserve_di" bpmnElement="Task_Reserve">
+        <dc:Bounds x="355" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Load_di" bpmnElement="Task_Load">
+        <dc:Bounds x="515" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Decide_di" bpmnElement="G_Decide" isMarkerVisible="true">
+        <dc:Bounds x="700" y="195" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="680" y="252" width="89" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Wrap_di" bpmnElement="Task_Wrap">
+        <dc:Bounds x="835" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Lift_di" bpmnElement="End_Lift">
+        <dc:Bounds x="1027" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1007" y="245" width="76" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Redo_di" bpmnElement="Task_Redo">
+        <dc:Bounds x="515" y="50" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_prepare_di" bpmnElement="Flow_start_prepare">
+        <di:waypoint x="103" y="220" />
+        <di:waypoint x="195" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_prepare_reserve_di" bpmnElement="Flow_prepare_reserve">
+        <di:waypoint x="295" y="220" />
+        <di:waypoint x="355" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_reserve_load_di" bpmnElement="Flow_reserve_load">
+        <di:waypoint x="455" y="220" />
+        <di:waypoint x="515" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_load_decide_di" bpmnElement="Flow_load_decide">
+        <di:waypoint x="615" y="220" />
+        <di:waypoint x="700" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_decide_wrap_di" bpmnElement="Flow_decide_wrap">
+        <di:waypoint x="750" y="220" />
+        <di:waypoint x="835" y="220" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="758" y="200" width="19" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_wrap_end_di" bpmnElement="Flow_wrap_end">
+        <di:waypoint x="935" y="220" />
+        <di:waypoint x="1027" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_decide_redo_di" bpmnElement="Flow_decide_redo">
+        <di:waypoint x="725" y="195" />
+        <di:waypoint x="725" y="90" />
+        <di:waypoint x="615" y="90" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="733" y="175" width="77" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_redo_back_di" bpmnElement="Flow_redo_back">
+        <di:waypoint x="515" y="90" />
+        <di:waypoint x="245" y="90" />
+        <di:waypoint x="245" y="180" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

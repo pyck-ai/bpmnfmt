@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_520a" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_PalletPicking" name="520a - Pallet Picking" isExecutable="true">
+    <bpmn:startEvent id="Start_OrderReleased" name="Pallet Order Released for Picking">
+      <bpmn:outgoing>Flow_start</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start" sourceRef="Start_OrderReleased" targetRef="Task_CreatePallet" />
+    <bpmn:serviceTask id="Task_CreatePallet" name="Create Pick Pallet Repository">
+      <bpmn:incoming>Flow_start</bpmn:incoming>
+      <bpmn:outgoing>Flow_pallet_coll</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_pallet_coll" sourceRef="Task_CreatePallet" targetRef="Task_CreateCollection" />
+    <bpmn:serviceTask id="Task_CreateCollection" name="Create Collection Movement">
+      <bpmn:incoming>Flow_pallet_coll</bpmn:incoming>
+      <bpmn:outgoing>Flow_coll_pick</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_coll_pick" sourceRef="Task_CreateCollection" targetRef="Task_Pick" />
+    <bpmn:userTask id="Task_Pick" name="Pick at Slot">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_coll_pick</bpmn:incoming>
+      <bpmn:incoming>Flow_pallet2_pick</bpmn:incoming>
+      <bpmn:incoming>Flow_next_stop</bpmn:incoming>
+      <bpmn:incoming>Flow_retry_yes</bpmn:incoming>
+      <bpmn:incoming>Flow_retarget_pick</bpmn:incoming>
+      <bpmn:outgoing>Flow_pick_gw</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_pick_gw" sourceRef="Task_Pick" targetRef="Gw_Stop" />
+    <bpmn:exclusiveGateway id="Gw_Stop" name="Stop result?">
+      <bpmn:incoming>Flow_pick_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_stop_picked</bpmn:outgoing>
+      <bpmn:outgoing>Flow_stop_flag</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_stop_picked" name="picked" sourceRef="Gw_Stop" targetRef="Task_Book" />
+    <bpmn:serviceTask id="Task_Book" name="Execute Pick Movement">
+      <bpmn:incoming>Flow_stop_picked</bpmn:incoming>
+      <bpmn:outgoing>Flow_book_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_book_gw" sourceRef="Task_Book" targetRef="Gw_Pallet" />
+    <bpmn:exclusiveGateway id="Gw_Pallet" name="Pallet full or order done?">
+      <bpmn:incoming>Flow_book_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_next_stop</bpmn:outgoing>
+      <bpmn:outgoing>Flow_pallet_done</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_next_stop" name="next stop" sourceRef="Gw_Pallet" targetRef="Task_Pick" />
+    <bpmn:sequenceFlow id="Flow_pallet_done" name="pallet full or done" sourceRef="Gw_Pallet" targetRef="Task_Label" />
+    <bpmn:userTask id="Task_Label" name="Print &#38; Apply Pallet Label">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_pallet_done</bpmn:incoming>
+      <bpmn:outgoing>Flow_label_gw</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_label_gw" sourceRef="Task_Label" targetRef="Gw_More" />
+    <bpmn:exclusiveGateway id="Gw_More" name="More to pick?">
+      <bpmn:incoming>Flow_label_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_more_yes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_more_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_more_yes" name="yes, new pallet" sourceRef="Gw_More" targetRef="Task_CreatePallet2" />
+    <bpmn:serviceTask id="Task_CreatePallet2" name="Create Pick Pallet Repository">
+      <bpmn:incoming>Flow_more_yes</bpmn:incoming>
+      <bpmn:outgoing>Flow_pallet2_pick</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_pallet2_pick" sourceRef="Task_CreatePallet2" targetRef="Task_Pick" />
+    <bpmn:sequenceFlow id="Flow_more_no" name="no" sourceRef="Gw_More" targetRef="Task_Stage" />
+    <bpmn:userTask id="Task_Stage" name="Confirm Pallets Staged">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_more_no</bpmn:incoming>
+      <bpmn:outgoing>Flow_stage_mark</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_stage_mark" sourceRef="Task_Stage" targetRef="Task_MarkPicked" />
+    <bpmn:serviceTask id="Task_MarkPicked" name="Mark Order Picked">
+      <bpmn:incoming>Flow_stage_mark</bpmn:incoming>
+      <bpmn:outgoing>Flow_mark_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_mark_end" sourceRef="Task_MarkPicked" targetRef="End_Picked" />
+    <bpmn:endEvent id="End_Picked" name="Order Picked">
+      <bpmn:incoming>Flow_mark_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_stop_flag" name="flagged" sourceRef="Gw_Stop" targetRef="Task_FindAlt" />
+    <bpmn:serviceTask id="Task_FindAlt" name="Find Item Elsewhere in Pick Face">
+      <bpmn:incoming>Flow_stop_flag</bpmn:incoming>
+      <bpmn:outgoing>Flow_alt_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_alt_gw" sourceRef="Task_FindAlt" targetRef="Gw_Alt" />
+    <bpmn:exclusiveGateway id="Gw_Alt" name="Item elsewhere in pick face?">
+      <bpmn:incoming>Flow_alt_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_alt_yes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_alt_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_alt_yes" name="yes, retarget stop" sourceRef="Gw_Alt" targetRef="Task_Retarget" />
+    <bpmn:serviceTask id="Task_Retarget" name="Retarget Stop to New Slot">
+      <bpmn:incoming>Flow_alt_yes</bpmn:incoming>
+      <bpmn:outgoing>Flow_retarget_pick</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_retarget_pick" sourceRef="Task_Retarget" targetRef="Task_Pick" />
+    <bpmn:sequenceFlow id="Flow_alt_no" name="no, urgent refill" sourceRef="Gw_Alt" targetRef="Task_ReportFlag" />
+    <bpmn:serviceTask id="Task_ReportFlag" name="Report Flag &#38; Request Urgent Refill">
+      <bpmn:incoming>Flow_alt_no</bpmn:incoming>
+      <bpmn:outgoing>Flow_flag_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_flag_gw" sourceRef="Task_ReportFlag" targetRef="Gw_Retry" />
+    <bpmn:exclusiveGateway id="Gw_Retry" name="More stops to try?">
+      <bpmn:incoming>Flow_flag_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_retry_yes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_retry_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_retry_yes" name="yes" sourceRef="Gw_Retry" targetRef="Task_Pick" />
+    <bpmn:sequenceFlow id="Flow_retry_no" name="no, finish short" sourceRef="Gw_Retry" targetRef="Task_LabelShort" />
+    <bpmn:userTask id="Task_LabelShort" name="Print &#38; Apply Pallet Label">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_retry_no</bpmn:incoming>
+      <bpmn:outgoing>Flow_labels_stage</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_labels_stage" sourceRef="Task_LabelShort" targetRef="Task_StageShort" />
+    <bpmn:userTask id="Task_StageShort" name="Confirm Pallets Staged">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_labels_stage</bpmn:incoming>
+      <bpmn:outgoing>Flow_stages_record</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_stages_record" sourceRef="Task_StageShort" targetRef="Task_RecordShort" />
+    <bpmn:serviceTask id="Task_RecordShort" name="Record Short Pick on Order">
+      <bpmn:incoming>Flow_stages_record</bpmn:incoming>
+      <bpmn:outgoing>Flow_record_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_record_notify" sourceRef="Task_RecordShort" targetRef="Task_NotifyShort" />
+    <bpmn:serviceTask id="Task_NotifyShort" name="Notify Office of Short Pick">
+      <bpmn:incoming>Flow_record_notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_notify_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_notify_end" sourceRef="Task_NotifyShort" targetRef="End_Short" />
+    <bpmn:endEvent id="End_Short" name="Picked Short: Reported">
+      <bpmn:incoming>Flow_notify_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:textAnnotation id="Anno_Pick">
+      <bpmn:text>ID: PickAtSlot</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Pick" associationDirection="None" sourceRef="Task_Pick" targetRef="Anno_Pick" />
+    <bpmn:textAnnotation id="Anno_Label">
+      <bpmn:text>ID: PrintAndApplyPalletLabel</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Label" associationDirection="None" sourceRef="Task_Label" targetRef="Anno_Label" />
+    <bpmn:textAnnotation id="Anno_Stage">
+      <bpmn:text>ID: ConfirmPalletsStaged</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Stage" associationDirection="None" sourceRef="Task_Stage" targetRef="Anno_Stage" />
+    <bpmn:textAnnotation id="Anno_LabelShort">
+      <bpmn:text>ID: PrintAndApplyPalletLabel</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Assoc_LabelShort" associationDirection="None" sourceRef="Task_LabelShort" targetRef="Anno_LabelShort" />
+    <bpmn:textAnnotation id="Anno_StageShort">
+      <bpmn:text>ID: ConfirmPalletsStaged</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Assoc_StageShort" associationDirection="None" sourceRef="Task_StageShort" targetRef="Anno_StageShort" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_PalletPicking">
+      <bpmndi:BPMNShape id="Start_OrderReleased_di" bpmnElement="Start_OrderReleased">
+        <dc:Bounds x="66" y="144" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="50" y="187" width="68" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CreatePallet_di" bpmnElement="Task_CreatePallet">
+        <dc:Bounds x="194" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CreateCollection_di" bpmnElement="Task_CreateCollection">
+        <dc:Bounds x="354" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Pick_di" bpmnElement="Task_Pick">
+        <dc:Bounds x="514" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_Stop_di" bpmnElement="Gw_Stop" isMarkerVisible="true">
+        <dc:Bounds x="699" y="137" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="692" y="115" width="64" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Book_di" bpmnElement="Task_Book">
+        <dc:Bounds x="834" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_Pallet_di" bpmnElement="Gw_Pallet" isMarkerVisible="true">
+        <dc:Bounds x="1019" y="137" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1012" y="194" width="65" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Label_di" bpmnElement="Task_Label">
+        <dc:Bounds x="1154" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_More_di" bpmnElement="Gw_More" isMarkerVisible="true">
+        <dc:Bounds x="1339" y="137" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1328" y="115" width="72" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_CreatePallet2_di" bpmnElement="Task_CreatePallet2">
+        <dc:Bounds x="1314" y="415" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Stage_di" bpmnElement="Task_Stage">
+        <dc:Bounds x="1474" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_MarkPicked_di" bpmnElement="Task_MarkPicked">
+        <dc:Bounds x="1634" y="122" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Picked_di" bpmnElement="End_Picked">
+        <dc:Bounds x="1826" y="144" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1809" y="187" width="70" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_FindAlt_di" bpmnElement="Task_FindAlt">
+        <dc:Bounds x="674" y="262" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_Alt_di" bpmnElement="Gw_Alt" isMarkerVisible="true">
+        <dc:Bounds x="859" y="277" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="843" y="240" width="81" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Retarget_di" bpmnElement="Task_Retarget">
+        <dc:Bounds x="994" y="262" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ReportFlag_di" bpmnElement="Task_ReportFlag">
+        <dc:Bounds x="834" y="585" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_Retry_di" bpmnElement="Gw_Retry" isMarkerVisible="true">
+        <dc:Bounds x="1019" y="600" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1008" y="563" width="73" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_LabelShort_di" bpmnElement="Task_LabelShort">
+        <dc:Bounds x="1154" y="585" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_StageShort_di" bpmnElement="Task_StageShort">
+        <dc:Bounds x="1314" y="585" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_RecordShort_di" bpmnElement="Task_RecordShort">
+        <dc:Bounds x="1474" y="585" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_NotifyShort_di" bpmnElement="Task_NotifyShort">
+        <dc:Bounds x="1634" y="585" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Short_di" bpmnElement="End_Short">
+        <dc:Bounds x="1826" y="607" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1808" y="650" width="71" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Anno_Pick_di" bpmnElement="Anno_Pick">
+        <dc:Bounds x="598" y="83" width="91" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Anno_Label_di" bpmnElement="Anno_Label">
+        <dc:Bounds x="1127" y="68" width="153" height="40" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Anno_Stage_di" bpmnElement="Anno_Stage">
+        <dc:Bounds x="1448" y="83" width="153" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Anno_LabelShort_di" bpmnElement="Anno_LabelShort">
+        <dc:Bounds x="1127" y="531" width="153" height="40" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Anno_StageShort_di" bpmnElement="Anno_StageShort">
+        <dc:Bounds x="1288" y="546" width="153" height="25" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_di" bpmnElement="Flow_start">
+        <di:waypoint x="102" y="162" />
+        <di:waypoint x="194" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pallet_coll_di" bpmnElement="Flow_pallet_coll">
+        <di:waypoint x="294" y="162" />
+        <di:waypoint x="354" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_coll_pick_di" bpmnElement="Flow_coll_pick">
+        <di:waypoint x="454" y="162" />
+        <di:waypoint x="514" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pick_gw_di" bpmnElement="Flow_pick_gw">
+        <di:waypoint x="614" y="162" />
+        <di:waypoint x="699" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stop_picked_di" bpmnElement="Flow_stop_picked">
+        <di:waypoint x="749" y="162" />
+        <di:waypoint x="834" y="162" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="757" y="142" width="35" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_book_gw_di" bpmnElement="Flow_book_gw">
+        <di:waypoint x="934" y="162" />
+        <di:waypoint x="1019" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_next_stop_di" bpmnElement="Flow_next_stop">
+        <di:waypoint x="1044" y="137" />
+        <di:waypoint x="1044" y="50" />
+        <di:waypoint x="564" y="50" />
+        <di:waypoint x="564" y="122" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1052" y="117" width="49" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pallet_done_di" bpmnElement="Flow_pallet_done">
+        <di:waypoint x="1069" y="162" />
+        <di:waypoint x="1154" y="162" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1161" y="142" width="91" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_label_gw_di" bpmnElement="Flow_label_gw">
+        <di:waypoint x="1254" y="162" />
+        <di:waypoint x="1339" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_more_yes_di" bpmnElement="Flow_more_yes">
+        <di:waypoint x="1364" y="187" />
+        <di:waypoint x="1364" y="415" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1372" y="192" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pallet2_pick_di" bpmnElement="Flow_pallet2_pick">
+        <di:waypoint x="1364" y="495" />
+        <di:waypoint x="1364" y="513" />
+        <di:waypoint x="564" y="513" />
+        <di:waypoint x="564" y="202" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_more_no_di" bpmnElement="Flow_more_no">
+        <di:waypoint x="1389" y="162" />
+        <di:waypoint x="1474" y="162" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1397" y="142" width="13" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stage_mark_di" bpmnElement="Flow_stage_mark">
+        <di:waypoint x="1574" y="162" />
+        <di:waypoint x="1634" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_mark_end_di" bpmnElement="Flow_mark_end">
+        <di:waypoint x="1734" y="162" />
+        <di:waypoint x="1826" y="162" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stop_flag_di" bpmnElement="Flow_stop_flag">
+        <di:waypoint x="724" y="187" />
+        <di:waypoint x="724" y="262" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="732" y="192" width="39" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_alt_gw_di" bpmnElement="Flow_alt_gw">
+        <di:waypoint x="774" y="302" />
+        <di:waypoint x="859" y="302" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_alt_yes_di" bpmnElement="Flow_alt_yes">
+        <di:waypoint x="909" y="302" />
+        <di:waypoint x="994" y="302" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1001" y="282" width="93" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_retarget_pick_di" bpmnElement="Flow_retarget_pick">
+        <di:waypoint x="1044" y="342" />
+        <di:waypoint x="1044" y="397" />
+        <di:waypoint x="564" y="397" />
+        <di:waypoint x="564" y="202" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_alt_no_di" bpmnElement="Flow_alt_no">
+        <di:waypoint x="884" y="327" />
+        <di:waypoint x="884" y="585" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="892" y="332" width="79" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_flag_gw_di" bpmnElement="Flow_flag_gw">
+        <di:waypoint x="934" y="625" />
+        <di:waypoint x="1019" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_retry_yes_di" bpmnElement="Flow_retry_yes">
+        <di:waypoint x="1044" y="650" />
+        <di:waypoint x="1044" y="720" />
+        <di:waypoint x="564" y="720" />
+        <di:waypoint x="564" y="202" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1052" y="655" width="19" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_retry_no_di" bpmnElement="Flow_retry_no">
+        <di:waypoint x="1069" y="625" />
+        <di:waypoint x="1154" y="625" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1161" y="605" width="78" height="15" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_labels_stage_di" bpmnElement="Flow_labels_stage">
+        <di:waypoint x="1254" y="625" />
+        <di:waypoint x="1314" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_stages_record_di" bpmnElement="Flow_stages_record">
+        <di:waypoint x="1414" y="625" />
+        <di:waypoint x="1474" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_record_notify_di" bpmnElement="Flow_record_notify">
+        <di:waypoint x="1574" y="625" />
+        <di:waypoint x="1634" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_notify_end_di" bpmnElement="Flow_notify_end">
+        <di:waypoint x="1734" y="625" />
+        <di:waypoint x="1826" y="625" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_Pick_di" bpmnElement="Assoc_Pick">
+        <di:waypoint x="612" y="122" />
+        <di:waypoint x="629" y="108" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_Label_di" bpmnElement="Assoc_Label">
+        <di:waypoint x="1204" y="122" />
+        <di:waypoint x="1204" y="108" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_Stage_di" bpmnElement="Assoc_Stage">
+        <di:waypoint x="1524" y="122" />
+        <di:waypoint x="1524" y="108" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_LabelShort_di" bpmnElement="Assoc_LabelShort">
+        <di:waypoint x="1204" y="585" />
+        <di:waypoint x="1204" y="571" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_StageShort_di" bpmnElement="Assoc_StageShort">
+        <di:waypoint x="1364" y="585" />
+        <di:waypoint x="1364" y="571" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_ReturnBundleMerge" targetNamespace="http://bpmn.io/schema/bpmn" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.9.0">
+  <bpmn:process id="Process_ReturnBundleMerge" name="Return bundle merge" isExecutable="true">
+    <bpmn:documentation>Rule M2b fixture: way-back edges entering the same node face merge into ONE
+riser at the target's column even when they lie in DIFFERENT gaps — the
+shallower return's riser is contained in the deeper one's, so the reader sees
+a single line growing as each return joins it, with one arrowhead.
+
+Shape: Start -&gt; Target -&gt; Work -&gt; G_Split -&gt; After -&gt; End on the spine.
+G_Split's alternate runs Fix -&gt; G_Deep -&gt; Retry on row 1; Retry's only exit
+loops back to Target. G_Deep's second branch drops to row 2 (Sink -&gt; G_More
+-&gt; End_Deep) and G_More loops back to Target too. The two returns lie in the
+gaps below rows 1 and 2 — different depths, one target.
+
+The subtree also reaches End_Deep, a forward dead end, so it is NOT a pure
+loop-return (rule N3 keeps it below the spine) and Fix's chain has
+sub-branches, so rule L3 never lays it out backwards.
+
+Exercises:
+  - both returns rise in Target's own column and end on the same point,
+  - the merge is declared (Merged links the shallower to the deeper),
+  - the deeper return owns the riser; the shallower's final run is
+    contained in it.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Bundle" name="Order received">
+      <bpmn:outgoing>Flow_start_target</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_target" sourceRef="Start_Bundle" targetRef="Task_Target" />
+    <bpmn:userTask id="Task_Target" name="Prepare item">
+      <bpmn:incoming>Flow_start_target</bpmn:incoming>
+      <bpmn:incoming>Flow_retry_back</bpmn:incoming>
+      <bpmn:incoming>Flow_more_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_target_work</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_target_work" sourceRef="Task_Target" targetRef="Task_Work" />
+    <bpmn:serviceTask id="Task_Work" name="Process item">
+      <bpmn:incoming>Flow_target_work</bpmn:incoming>
+      <bpmn:outgoing>Flow_work_split</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_work_split" sourceRef="Task_Work" targetRef="G_Split" />
+    <bpmn:exclusiveGateway id="G_Split" name="Result?">
+      <bpmn:incoming>Flow_work_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_split_after</bpmn:outgoing>
+      <bpmn:outgoing>Flow_split_fix</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_split_after" name="ok" sourceRef="G_Split" targetRef="Task_After" />
+    <bpmn:serviceTask id="Task_After" name="Close item">
+      <bpmn:incoming>Flow_split_after</bpmn:incoming>
+      <bpmn:outgoing>Flow_after_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_after_end" sourceRef="Task_After" targetRef="End_Bundle" />
+    <bpmn:endEvent id="End_Bundle" name="Item closed">
+      <bpmn:incoming>Flow_after_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_split_fix" name="rework" sourceRef="G_Split" targetRef="Task_Fix" />
+    <bpmn:serviceTask id="Task_Fix" name="Inspect item">
+      <bpmn:incoming>Flow_split_fix</bpmn:incoming>
+      <bpmn:outgoing>Flow_fix_deep</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_fix_deep" sourceRef="Task_Fix" targetRef="G_Deep" />
+    <bpmn:exclusiveGateway id="G_Deep" name="Fixable here?">
+      <bpmn:incoming>Flow_fix_deep</bpmn:incoming>
+      <bpmn:outgoing>Flow_deep_retry</bpmn:outgoing>
+      <bpmn:outgoing>Flow_deep_sink</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_deep_retry" name="yes" sourceRef="G_Deep" targetRef="Task_Retry" />
+    <bpmn:serviceTask id="Task_Retry" name="Repair item">
+      <bpmn:incoming>Flow_deep_retry</bpmn:incoming>
+      <bpmn:outgoing>Flow_retry_back</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_retry_back" sourceRef="Task_Retry" targetRef="Task_Target" />
+    <bpmn:sequenceFlow id="Flow_deep_sink" name="no" sourceRef="G_Deep" targetRef="Task_Sink" />
+    <bpmn:serviceTask id="Task_Sink" name="Escalate item">
+      <bpmn:incoming>Flow_deep_sink</bpmn:incoming>
+      <bpmn:outgoing>Flow_sink_more</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_sink_more" sourceRef="Task_Sink" targetRef="G_More" />
+    <bpmn:exclusiveGateway id="G_More" name="Worth another try?">
+      <bpmn:incoming>Flow_sink_more</bpmn:incoming>
+      <bpmn:outgoing>Flow_more_back</bpmn:outgoing>
+      <bpmn:outgoing>Flow_more_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_more_back" name="yes" sourceRef="G_More" targetRef="Task_Target" />
+    <bpmn:sequenceFlow id="Flow_more_end" name="no" sourceRef="G_More" targetRef="End_Deep" />
+    <bpmn:endEvent id="End_Deep" name="Item written off">
+      <bpmn:incoming>Flow_more_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_ReturnBundleMerge">
+    <bpmndi:BPMNPlane id="BPMNPlane_ReturnBundleMerge" bpmnElement="Process_ReturnBundleMerge" />
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

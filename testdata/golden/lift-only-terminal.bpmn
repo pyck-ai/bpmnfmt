@@ -176,8 +176,8 @@ Exercises:
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_b2_join_di" bpmnElement="Flow_b2_join">
         <di:waypoint x="776" y="357" />
-        <di:waypoint x="900" y="357" />
-        <di:waypoint x="900" y="108" />
+        <di:waypoint x="886" y="357" />
+        <di:waypoint x="886" y="122" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

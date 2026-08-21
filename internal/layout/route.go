@@ -13,6 +13,7 @@ const (
 	sTop nodeSide = iota
 	sBottom
 	sLeft
+	sRight
 )
 
 type sideKey struct {
@@ -89,6 +90,8 @@ const (
 	pkHLeft                      // straight horizontal along a row, right to left (retrograde chain)
 	pkOverRow                    // exit top, lane above own row, enter target top (sky skip arc)
 	pkBackTop                    // exit top, way-back line above the row, enter target top (sky loop)
+	pkUpRightIn                  // exit top, rise beside the source, enter right side (sky-retro entry)
+	pkLeftDown                   // exit left, horizontal to the target column, straight down into the top
 )
 
 type edgePlan struct {
@@ -248,11 +251,121 @@ func (cl *compLayout) rankUpwardRisers() {
 
 func riserKey(dst string, row int) string { return fmt.Sprintf("%s/%d", dst, row) }
 
+// riserBundle is a set of forward rejoins that enter one target's bottom
+// face on a SHARED riser standing in that target's own column (rule N1b).
+type riserBundle struct {
+	deep  int  // deepest member's source row: how far the riser has to reach
+	owned bool // the shared column has been reserved
+}
+
+// targetColumnRiser reports whether a rejoin can turn up in its target's
+// OWN column: rule L1's right-then-up shape at zero offset. This is the
+// eligibility gate for rule N1b. A rejoin whose column is blocked by a
+// shape — for its full depth, not just near the target — cannot lie on the
+// bundle's line and keeps its own riser and its own arrowhead.
+func (cl *compLayout) targetColumnRiser(src, dst string, sr, dr int) bool {
+	dx := cl.x[dst]
+	return dx > cl.x[src] && dx > cl.right(src)+10 &&
+		!cl.nodesBetween(sr, cl.right(src), dx) &&
+		cl.corridorClear(dx, dr+1, sr)
+}
+
+// planRiserMerges decides, before any route is planned, which forward
+// rejoins into one target share a single riser in that target's own column
+// (rule N1b). This is the forward counterpart of rule M2b: way-back lines
+// already merge across gaps because every return rises in the target's own
+// column, and a rejoin that CAN stand in that column is in exactly the same
+// position — the shallower member's final run is contained in the deeper
+// one's, so the two read as one line ending in one arrowhead.
+//
+// The decision has to be made up front rather than in mergeBundleDockings,
+// because it changes the route: members skip rule M4's rank (see
+// planMergedRiser) and share one reserved column instead of contending for
+// it. Only shape clearance is consulted here, which is known before any
+// corridor exists; the column's availability is settled when the bundle's
+// first member is planned.
+func (cl *compLayout) planRiserMerges() {
+	byDst := map[string][]string{}
+	deepest := map[string]int{}
+	var order []string
+	for _, fl := range cl.componentFlows() {
+		src, dst := fl.SourceRef, fl.TargetRef
+		sr, dr := cl.rowOf[src], cl.rowOf[dst]
+		if sr <= dr {
+			continue
+		}
+		switch classify(cl.g, cl.chains, cl.chainOf, fl) {
+		case fcExit, fcCross, fcRootExit:
+		default:
+			continue
+		}
+		if !cl.targetColumnRiser(src, dst, sr, dr) {
+			continue
+		}
+		if _, seen := byDst[dst]; !seen {
+			order = append(order, dst)
+		}
+		byDst[dst] = append(byDst[dst], fl.ID)
+		if sr > deepest[dst] {
+			deepest[dst] = sr
+		}
+	}
+	for _, dst := range order {
+		if len(byDst[dst]) < 2 {
+			continue // one rejoin is not a bundle; rule L1 routes it as usual
+		}
+		for _, id := range byDst[dst] {
+			cl.riserMerge[id] = dst
+		}
+		cl.riserBundles[dst] = &riserBundle{deep: deepest[dst]}
+	}
+}
+
+// planMergedRiser routes one member of a merged rejoin bundle (rule N1b):
+// out of the source's right border, along its own row, and up in the
+// TARGET'S own column — the same column every member uses, so the reader
+// sees one line growing as each arc joins it and a single arrowhead on the
+// target's face. On a diamond that face point is the bottom vertex, since
+// the entry carries no offset to slide along the slant.
+//
+// Rule M4's rank is deliberately NOT applied. Stepping a deeper riser to
+// the right keeps it off the horizontal approach of the shallower ones;
+// members of one bundle share a single line, so there is no approach left
+// to cut. M4 still ranks every rejoin that does not merge.
+func (cl *compLayout) planMergedRiser(pl *edgePlan, dr int, dx float64) bool {
+	b := cl.riserBundles[cl.riserMerge[pl.id]]
+	if b == nil {
+		return false
+	}
+	if !b.owned {
+		// The column has to carry the whole bundle, not just this member.
+		// If an earlier route already holds it the bundle cannot form, and
+		// every member falls back to its own M4-ranked riser.
+		if !cl.corridorFree(dx, dr, b.deep) {
+			dst := cl.riserMerge[pl.id]
+			for id, d := range cl.riserMerge {
+				if d == dst {
+					delete(cl.riserMerge, id)
+				}
+			}
+			delete(cl.riserBundles, dst)
+			return false
+		}
+		cl.useCorridor(dx, dr, b.deep)
+		b.owned = true
+	}
+	pl.kind = pkRightUp
+	pl.corrX = dx
+	pl.entry = cl.dock(pl.id, pl.dst, sBottom, cl.x[pl.src], true, 0)
+	return true
+}
+
 // planRoutes builds a symbolic routing plan per sequence flow.
 func (cl *compLayout) planRoutes() error {
 	cl.gapLanes = make([][]*laneSeg, len(cl.rows)+1)
 	cl.planSky()
 	cl.rankUpwardRisers()
+	cl.planRiserMerges()
 	for _, fl := range cl.componentFlows() {
 		pl := &edgePlan{id: fl.ID, src: fl.SourceRef, dst: fl.TargetRef}
 		cl.plans = append(cl.plans, pl)
@@ -264,8 +377,9 @@ func (cl *compLayout) planRoutes() error {
 
 		switch classify(cl.g, cl.chains, cl.chainOf, fl) {
 		case fcChainInternal:
-			if cl.retroChain(pl.src) {
-				// The chain reads backwards: the body IS the way-back line.
+			if cl.retroChain(pl.src) || cl.skyRetroChain(pl.src) {
+				// The chain reads backwards: the body IS the way-back line
+				// (rule L3 below the row, rule N3b in the sky).
 				pl.kind = pkHLeft
 				cl.res.Retrograde[pl.id] = true
 				break
@@ -281,6 +395,10 @@ func (cl *compLayout) planRoutes() error {
 				pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, true, 0)
 				pl.entry = cl.dock(pl.id, pl.dst, sTop, sx, true, 0)
 				cl.useCorridor(sx, sr, dr)
+				break
+			}
+			if cl.skyRetroChain(pl.dst) {
+				cl.planSkyRetroEntry(pl, sr, dr)
 				break
 			}
 			cl.planBranchEntry(pl, sr, dr)
@@ -317,6 +435,30 @@ func (cl *compLayout) planRoutes() error {
 func (cl *compLayout) retroChain(id string) bool {
 	i, ok := cl.chainOf[id]
 	return ok && i >= 0 && i < len(cl.chains) && cl.chains[i].retro
+}
+
+// skyRetroChain reports whether a node belongs to a lifted loop-return
+// body laid out right to left (rule N3b).
+func (cl *compLayout) skyRetroChain(id string) bool {
+	i, ok := cl.chainOf[id]
+	return ok && i >= 0 && i < len(cl.chains) && cl.chains[i].skyRetro
+}
+
+// planSkyRetroEntry routes the split's entry into a lifted loop-return
+// body (rule N3b): the body reads right to left with its head one column
+// LEFT of the split, so the entry rises out of the gateway's top corner in
+// the gateway's own column and turns once into the head's RIGHT face. The
+// hop is leftward by design, so it is registered as retrograde.
+func (cl *compLayout) planSkyRetroEntry(pl *edgePlan, sr, dr int) {
+	gx := cl.x[pl.src]
+	pl.kind = pkUpRightIn
+	pl.corrX = gx
+	pl.exit = cl.dock(pl.id, pl.src, sTop, gx, true, 0)
+	pl.exit.shared = true
+	pl.entry = cl.dock(pl.id, pl.dst, sRight, float64(cl.rowOf[pl.src]), false, 0)
+	lo, hi := rowBand(sr, dr)
+	cl.useCorridor(gx, lo, hi)
+	cl.res.Retrograde[pl.id] = true
 }
 
 func (cl *compLayout) left(id string) float64  { return cl.x[id] - cl.width(id)/2 }
@@ -400,6 +542,9 @@ func (cl *compLayout) planDownward(pl *edgePlan, sr, dr int, sx, dx float64, ali
 // border to leave sideways from, and whose `dx > sx` gate is false anyway
 // because assignX aligns it under the target.
 func (cl *compLayout) planUpward(pl *edgePlan, sr, dr int, sx, dx float64, aligned bool) {
+	if cl.planMergedRiser(pl, dr, dx) {
+		return // rule N1b: this one shares the bundle's riser
+	}
 	if dx > sx {
 		// Offsets to the RIGHT, starting at this source's depth rank. Every
 		// rejoin approaches from the left along its own row, so a riser
@@ -551,6 +696,45 @@ func (cl *compLayout) planBack(pl *edgePlan, sr, dr int, sx, dx float64) {
 		pl.kind = pkVUp
 		pl.exit = cl.dock(pl.id, pl.src, sTop, dx, true, 0)
 		pl.entry = cl.dock(pl.id, pl.dst, sBottom, sx, true, 0)
+		return
+	}
+	// A loop-return branch lifted above the spine (markLoopReturns, rule
+	// N3) returns through the SKY: out of the source's bottom, back along
+	// the gap above the target's row, and down into the target's TOP. The
+	// lane is a sky lane, so rule M2 merges it with the target's other
+	// top-face returns.
+	if dr > sr && sr < cl.chains[0].row {
+		// The body read right to left (rule N3b): the tail's return leaves
+		// its LEFT face, runs back along its own row and turns once down
+		// into the target's top — rule L1's right-then-up, pointing home.
+		// A tail that overshot the target's column, or whose row or drop
+		// is blocked, falls back to the sky-lane shape below.
+		if ch := cl.chains[cl.chainOf[pl.src]]; ch.skyRetro &&
+			ch.nodes[len(ch.nodes)-1] == pl.src &&
+			dx < cl.left(pl.src) && !cl.nodesBetween(sr, dx, cl.left(pl.src)) &&
+			cl.corridorClear(dx, sr+1, dr-1) {
+			lo, hi := rowBand(sr, dr)
+			cl.useCorridor(dx, lo, hi)
+			pl.kind = pkLeftDown
+			pl.corrX = dx
+			pl.exit = cl.dock(pl.id, pl.src, sLeft, float64(dr), false, 0)
+			pl.entry = cl.dock(pl.id, pl.dst, sTop, dx, true, 0)
+			return
+		}
+		band := dr // the gap above the target's row
+		if cl.corridorClear(sx, sr+1, band-1) {
+			lo, hi := rowBand(sr, dr)
+			cl.useCorridor(dx, lo, hi)
+			pl.kind = pkBackTop
+			pl.corrX = dx
+			pl.g1 = band
+			pl.seg1 = cl.lane(band, pl.id, sx, dx)
+			pl.seg1.sky = true
+			pl.exit = cl.dock(pl.id, pl.src, sBottom, dx, false, 0)
+			pl.entry = cl.dock(pl.id, pl.dst, sTop, dx, true, 0)
+			return
+		}
+		cl.planMargin(pl, sr, dr, true)
 		return
 	}
 	band := sr + 1
@@ -767,25 +951,95 @@ func (cl *compLayout) laneBundles() map[*laneSeg]string {
 func (cl *compLayout) mergeBundleDockings() {
 	mergeable := func(k planKind) bool {
 		return k == pkUnderRow || k == pkBackBottom ||
-			k == pkOverRow || k == pkBackTop
+			k == pkOverRow || k == pkBackTop || k == pkLeftDown ||
+			k == pkRightUp
+	}
+	isBack := func(k planKind) bool {
+		return k == pkBackBottom || k == pkBackTop || k == pkLeftDown
+	}
+	// These two run along their source's own row and reserve no lane.
+	laneless := func(k planKind) bool {
+		return k == pkLeftDown || k == pkRightUp
 	}
 	byKey := map[string][]*edgePlan{}
 	var order []string
 	for _, pl := range cl.plans {
-		if !mergeable(pl.kind) || pl.entry == nil || pl.seg1 == nil {
+		if !mergeable(pl.kind) || pl.entry == nil {
+			continue
+		}
+		if pl.seg1 == nil && !laneless(pl.kind) {
 			continue
 		}
 		if pl.entry.side != sTop && pl.entry.side != sBottom {
 			continue
 		}
-		// The gap is part of the key: members sharing a target but lying in
-		// different gaps sit at different lane depths, so their risers have
-		// different lengths and one cannot follow the other's line.
-		k := fmt.Sprintf("%d/%s/%d", pl.g1, pl.dst, pl.entry.side)
+		// The gap is part of the key for FORWARD kinds: members sharing a
+		// target but lying in different gaps sit at different lane depths,
+		// so their risers have different lengths and one cannot follow the
+		// other's line. Way-back returns are different (rule M2b): every
+		// return rises in the target's own column, so a shallower member's
+		// riser IS contained in a deeper one's — returns into one face
+		// merge ACROSS gaps into the single riser the deepest one owns.
+		// Forward REJOINS turning up in the target's column (rule N1b) are
+		// in the same position and merge across gaps too: planRiserMerges
+		// already put the whole bundle in one column, so the shallower
+		// member's riser is contained in the deeper one's.
+		//
+		// Either way, a member whose target-column riser is shape-blocked —
+		// its offset search settled beside the column, fixed != 0 — cannot
+		// lie on that riser and keeps its own riser and arrowhead. A member
+		// routed through a corridor reserved elsewhere (pkUpBottom,
+		// pkDownTop) fails the same gate by construction: it only reached
+		// that plan because the target's column was unavailable.
+		//
+		// Returns and rejoins keep separate keys. A way-back line and a
+		// forward flow into one face are not one bundle, and rule 6's
+		// crossing exemption applies to only one of them.
+		var k string
+		switch {
+		case isBack(pl.kind):
+			if pl.entry.fixed != 0 {
+				continue
+			}
+			k = fmt.Sprintf("back/%s/%d", pl.dst, pl.entry.side)
+		case pl.kind == pkRightUp:
+			if pl.entry.fixed != 0 {
+				continue
+			}
+			k = fmt.Sprintf("rejoin/%s/%d", pl.dst, pl.entry.side)
+		default:
+			k = fmt.Sprintf("%d/%s/%d", pl.g1, pl.dst, pl.entry.side)
+		}
 		if _, seen := byKey[k]; !seen {
 			order = append(order, k)
 		}
 		byKey[k] = append(byKey[k], pl)
+	}
+	// riserDepth ranks how far a member's final riser reaches from the
+	// target's face, in row/gap steps: a bottom return starting in a
+	// deeper gap reaches further down; a laneless member (pkLeftDown,
+	// pkRightUp) starts at its source's own row, further out than any lane
+	// in the neighbouring gap. The deepest member owns the riser (rules
+	// M2b and N1b).
+	riserDepth := func(pl *edgePlan) int {
+		dr := cl.rowOf[pl.dst]
+		if laneless(pl.kind) {
+			d := dr - cl.rowOf[pl.src]
+			if d < 0 {
+				return -d
+			}
+			return d
+		}
+		if pl.g1 > dr {
+			return pl.g1 - dr
+		}
+		return dr - pl.g1
+	}
+	segLo := func(pl *edgePlan) float64 {
+		if pl.seg1 != nil {
+			return pl.seg1.lo()
+		}
+		return math.Min(cl.x[pl.src], cl.x[pl.dst])
 	}
 	for _, k := range order {
 		members := byKey[k]
@@ -793,7 +1047,14 @@ func (cl *compLayout) mergeBundleDockings() {
 			continue
 		}
 		sort.SliceStable(members, func(i, j int) bool {
-			li, lj := members[i].seg1.lo(), members[j].seg1.lo()
+			// The deepest member has the longest riser and owns the
+			// trunk; every shallower member's final run is contained in
+			// it. Forward bundles share one gap, so this never reorders
+			// them.
+			if di, dj := riserDepth(members[i]), riserDepth(members[j]); di != dj {
+				return di > dj
+			}
+			li, lj := segLo(members[i]), segLo(members[j])
 			if li != lj {
 				return li < lj
 			}
@@ -922,12 +1183,12 @@ func (cl *compLayout) laneCount(g int) int {
 }
 
 // dockingSpan returns the center an offset is measured from and the largest
-// offset the shape can carry, along the side's own axis. A left docking runs
-// down the shape's height and is ordered by the row the edge comes from;
-// only a rectangle has a straight left border to spread along, so a circle
-// or a diamond keeps its single left point.
+// offset the shape can carry, along the side's own axis. A left or right
+// docking runs down the shape's height and is ordered by the row the edge
+// comes from; only a rectangle has a straight border to spread along, so a
+// circle or a diamond keeps its single side point.
 func (cl *compLayout) dockingSpan(key sideKey) (center, max float64) {
-	if key.side != sLeft {
+	if key.side != sLeft && key.side != sRight {
 		return cl.x[key.node], cl.width(key.node)/2 - 4
 	}
 	center = float64(cl.rowOf[key.node])
@@ -1026,7 +1287,7 @@ func (cl *compLayout) resolveDockings() {
 		}
 		// A diamond has no flat top or bottom: every edge touches the exact
 		// corner point and jogs to its own lane over a short shared stub.
-		if key.side != sLeft && cl.node(key.node).Kind.IsGateway() {
+		if key.side != sLeft && key.side != sRight && cl.node(key.node).Kind.IsGateway() {
 			for _, d := range docks {
 				d.stub = math.Abs(d.off) > 0.5
 			}

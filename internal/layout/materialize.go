@@ -269,6 +269,12 @@ func (cl *compLayout) materializeEdges() {
 			pts = append(leaves(sTop),
 				Point{exitX(), entryY()}, Point{dst.X, entryY()})
 
+		case pkUpRightIn:
+			// Entry into a right-to-left sky body (rule N3b): rise in the
+			// gateway's own column, turn once into the head's right face.
+			pts = append(leaves(sTop),
+				Point{exitX(), entryY()}, Point{dst.Right(), entryY()})
+
 		case pkDownJog:
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
 			pts = append(leaves(sBottom),
@@ -322,10 +328,19 @@ func (cl *compLayout) materializeEdges() {
 			pts = append(pts, arrives(sBottom)...)
 
 		case pkBackTop:
-			// A same-row loop whose sky is free: the way-back line arches
-			// over the row rather than dipping under it.
+			// A same-row loop whose sky is free arches over the row rather
+			// than dipping under it; a LIFTED loop-return source (rule N3)
+			// drops out of its bottom into the same sky lane instead. The
+			// exit docking carries the side either way.
 			ly := cl.laneY(pl.g1, pl.seg1.lane)
-			pts = append(leaves(sTop), Point{exitX(), ly}, Point{entryX(), ly})
+			pts = append(leaves(pl.exit.side), Point{exitX(), ly}, Point{entryX(), ly})
+			pts = append(pts, arrives(sTop)...)
+
+		case pkLeftDown:
+			// Rule N3b return: out of the body's left face, back along its
+			// own row, one turn down into the target's top.
+			y := src.CY() + pl.exit.off
+			pts = []Point{{src.X, y}, {entryX(), y}}
 			pts = append(pts, arrives(sTop)...)
 
 		case pkBackMargin:
