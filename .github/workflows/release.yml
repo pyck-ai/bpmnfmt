@@ -1,21 +1,46 @@
 name: release
 
 # Publishing a Go module = the git tag + the proxy caching that version.
-# A GitHub Release creates the tag, so this workflow runs on release publish:
-# it gates on tests, attaches cross-platform binaries to the release, and
-# warms the Go module proxy so `go get …@<version>` and pkg.go.dev resolve it.
+#
+# This repo has immutable releases enabled: once a release is PUBLISHED its
+# assets are frozen, and uploading to it fails with "HTTP 422: Cannot upload
+# assets to an immutable release". So the binaries have to be attached while
+# the release is still a draft — which means the workflow cannot run on
+# `release: published` and append to it afterwards.
+#
+# It runs on the tag push instead and leaves a DRAFT behind:
+#
+#   1. git tag v1.2.3 && git push origin v1.2.3
+#   2. this workflow tests, cross-compiles, and creates the draft release
+#      with every archive already attached (notes auto-generated as a
+#      starting point)
+#   3. edit the notes and hit Publish — the assets are already in place, so
+#      immutability has nothing to reject
+#
+# Re-running is safe: an existing DRAFT gets its assets replaced, while an
+# already-published tag fails loudly rather than pretending to succeed.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build a draft release for (e.g. v1.2.3)'
+        required: true
 
 permissions:
-  contents: write # upload release assets
+  contents: write # create the draft release and upload its assets
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
@@ -41,6 +66,8 @@ jobs:
           - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
@@ -51,8 +78,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
-          VERSION: ${{ github.event.release.tag_name }}
         run: |
+          VERSION="$TAG"
+          if [ -z "$VERSION" ]; then echo "::error::no tag to build"; exit 1; fi
           name="bpmnfmt_${VERSION}_${GOOS}_${GOARCH}"
           bin=bpmnfmt
           [ "$GOOS" = windows ] && bin=bpmnfmt.exe
@@ -69,7 +97,7 @@ jobs:
           path: dist/*
           retention-days: 1
 
-  publish-binaries:
+  draft-release:
     needs: binaries
     runs-on: ubuntu-latest
     steps:
@@ -81,20 +109,32 @@ jobs:
         run: |
           cd dist
           sha256sum * | tee checksums.txt
-      - name: Attach assets to the release
+      - name: Create the draft release with its assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)" != "true" ]; then
+              echo "::error::$TAG is already published; immutable releases refuse new assets. Cut a new tag."
+              exit 1
+            fi
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* \
+              --draft \
+              --title "$TAG" \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+          echo "::notice::Draft release $TAG is ready with its assets — edit the notes and publish it."
 
   publish-module:
     needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Warm the Go module proxy
-        env:
-          VERSION: ${{ github.event.release.tag_name }}
         run: |
+          VERSION="$TAG"
           mod=github.com/pyck-ai/bpmnfmt
           echo "Requesting ${mod}@${VERSION} from proxy.golang.org…"
           if curl -fsSL "https://proxy.golang.org/${mod}/@v/${VERSION}.info"; then
