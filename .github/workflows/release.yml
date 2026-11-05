@@ -36,7 +36,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [pyck-ai, firecracker, standard]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,7 +55,7 @@ jobs:
 
   binaries:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: [pyck-ai, firecracker, standard]
     strategy:
       matrix:
         include:
@@ -99,7 +99,7 @@ jobs:
 
   draft-release:
     needs: binaries
-    runs-on: ubuntu-latest
+    runs-on: [pyck-ai, firecracker, light]
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -130,7 +130,7 @@ jobs:
 
   publish-module:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: [pyck-ai, firecracker, light]
     steps:
       - name: Warm the Go module proxy
         run: |
